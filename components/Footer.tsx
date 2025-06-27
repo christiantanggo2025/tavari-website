@@ -3,7 +3,7 @@ import React from "react";
 export default function Footer() {
   return (
     <footer style={{
-      background: "#f5f7fa",
+      background: "#fff",
       padding: "40px 0 0 0",
       borderTop: "1px solid #e5e5e5",
       marginTop: "auto"
@@ -68,16 +68,18 @@ export default function Footer() {
           </p>
           <div style={{ fontSize: 16 }}>
             <b>Address:</b> 539 First Street, London, ON<br />
-            <b>Email:</b>{" "}
             <a
               href="mailto:info@tanggo.ca?subject=Tavari Inquiry"
               style={{
                 color: "#008080",
                 fontWeight: 600,
-                textDecoration: "underline"
+                textDecoration: "underline",
+                display: "inline-block",
+                marginTop: 4,
+                fontSize: 16
               }}
             >
-              info@tanggo.ca
+              Contact Us
             </a>
           </div>
         </div>
@@ -88,7 +90,7 @@ export default function Footer() {
         color: "#888",
         fontSize: 14,
         marginTop: 30,
-        background: "#e6ecf5",
+        background: "#f7f7f7",
         padding: "14px 0",
         borderRadius: "0 0 12px 12px"
       }}>
