@@ -1,0 +1,27 @@
+{
+  "name": "tavari-website",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/christiantanggo2025/tavari-website.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/christiantanggo2025/tavari-website/issues"
+  },
+  "homepage": "https://github.com/christiantanggo2025/tavari-website#readme",
+  "description": "",
+  "dependencies": {
+    "next": "^15.3.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  }
+}
