@@ -170,23 +170,32 @@ export default function PrivacyPolicy() {
 
         {/* Section 9 */}
         <section style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#008080" }}>9. International Users</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#008080" }}>9. Account Deletion</h2>
+          <p>
+            If you wish to permanently delete your account and all associated data, please contact our support team at info@tanggo.ca. Your request will be processed promptly and all personal data will be removed from our systems in accordance with applicable privacy laws.
+          </p>
+        </section>
+
+
+        {/* Section 10 */}
+        <section style={{ marginBottom: 28 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#008080" }}>10. International Users</h2>
           <p>
             Our app may be used by individuals outside of Canada. By using the app, you consent to the transfer and storage of your information in the country where our servers and Supabase are located.
           </p>
         </section>
 
-        {/* Section 10 */}
+        {/* Section 11 */}
         <section style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#008080" }}>10. Changes to This Policy</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#008080" }}>11. Changes to This Policy</h2>
           <p>
             We may update this Privacy Policy from time to time. Changes will be posted in the App or via an in-app notice. Your continued use after changes means you accept the revised policy.
           </p>
         </section>
 
-        {/* Section 11 */}
+        {/* Section 12 */}
         <section>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#008080" }}>11. Contact Us</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#008080" }}>12. Contact Us</h2>
           <p>
             If you have questions about this Privacy Policy or our data practices, please contact:
           </p>
