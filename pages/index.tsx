@@ -22,74 +22,83 @@ export default function Home() {
         width: "100%",
         background: "#fff",
         borderBottom: "1px solid #eee",
-        padding: "0 5vw",
-        display: "flex",
-        alignItems: "center",
         height: 68,
         position: "relative",
         zIndex: 2,
-        justifyContent: "space-between"
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
       }}>
-        {/* Logo */}
         <div style={{
-          display: "flex", alignItems: "center", minWidth: 100
+          maxWidth: 1200,
+          width: "100%",
+          padding: "0 24px",
+          margin: "0 auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between"
         }}>
-          <img
-            src="/tavari-logo.png"
-            alt="Tavari Logo"
-            style={{
-              height: 40,
-              width: "auto",
-              objectFit: "contain"
-            }}
-          />
+          {/* Logo */}
+          <div style={{
+            display: "flex", alignItems: "center", minWidth: 100
+          }}>
+            <img
+              src="/tavari-logo.png"
+              alt="Tavari Logo"
+              style={{
+                height: 40,
+                width: "auto",
+                objectFit: "contain"
+              }}
+            />
+          </div>
+          {/* Nav Buttons */}
+          <nav style={{ display: "flex", gap: 14 }}>
+            <button
+              onClick={handleContactClick}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#008080",
+                fontWeight: 700,
+                fontSize: 17,
+                cursor: "pointer",
+                padding: "7px 18px",
+                borderRadius: 6,
+                transition: "background 0.2s"
+              }}
+            >
+              Contact
+            </button>
+            <button
+              onClick={handleLoginClick}
+              style={{
+                background: "#008080",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 17,
+                border: "none",
+                borderRadius: 6,
+                padding: "7px 22px",
+                cursor: "pointer",
+                transition: "background 0.2s"
+              }}
+            >
+              Login
+            </button>
+          </nav>
         </div>
-        {/* Nav Buttons */}
-        <nav style={{ display: "flex", gap: 14 }}>
-          <button
-            onClick={handleContactClick}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#008080",
-              fontWeight: 700,
-              fontSize: 17,
-              cursor: "pointer",
-              padding: "7px 18px",
-              borderRadius: 6,
-              transition: "background 0.2s"
-            }}
-          >
-            Contact
-          </button>
-          <button
-            onClick={handleLoginClick}
-            style={{
-              background: "#008080",
-              color: "#fff",
-              fontWeight: 700,
-              fontSize: 17,
-              border: "none",
-              borderRadius: 6,
-              padding: "7px 22px",
-              cursor: "pointer",
-              transition: "background 0.2s"
-            }}
-          >
-            Login
-          </button>
-        </nav>
       </header>
 
       {/* HERO */}
       <main style={{
         flex: 1,
         minHeight: 0,
+        background: `url('/hero-bg.jpg') center center/cover no-repeat`,
+        position: "relative",
         display: "flex",
         alignItems: "center",
-        justifyContent: "flex-start",
-        background: `url('/hero-bg.jpg') center center/cover no-repeat`,
-        position: "relative"
+        justifyContent: "center"
       }}>
         {/* Overlay for readability */}
         <div style={{
@@ -101,17 +110,34 @@ export default function Home() {
         <div style={{
           position: "relative",
           zIndex: 2,
-          color: "#fff",
-          fontFamily: "Arial Black, Arial, sans-serif",
-          fontSize: "clamp(2.1rem, 7vw, 3.9rem)",
-          fontWeight: 900,
-          textAlign: "left",
-          textShadow: "0 4px 20px #0008, 0 2px 7px #000",
-          letterSpacing: 2,
-          padding: "7vw 5vw",
-          maxWidth: 700,
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-start",
         }}>
-          Something Exciting Is<br />Coming
+          <div style={{
+            maxWidth: 1200,
+            width: "100%",
+            margin: "0 auto",
+            padding: "7vw 24px",
+          }}>
+            {/* HERO HEADLINE (three fixed lines) */}
+            <div style={{
+              color: "#fff",
+              fontFamily: "Arial Black, Arial, sans-serif",
+              fontSize: "clamp(2.1rem, 7vw, 3.9rem)",
+              fontWeight: 900,
+              textAlign: "left",
+              textShadow: "0 4px 20px #0008, 0 2px 7px #000",
+              letterSpacing: 2,
+              maxWidth: 700,
+              lineHeight: 1.08
+            }}>
+              <span style={{ display: "block" }}>Something</span>
+              <span style={{ display: "block" }}>Exciting Is</span>
+              <span style={{ display: "block" }}>Coming</span>
+            </div>
+          </div>
         </div>
       </main>
 
@@ -120,23 +146,19 @@ export default function Home() {
       {/* RESPONSIVE STYLES */}
       <style jsx global>{`
         @media (max-width: 700px) {
-          header {
-            flex-direction: column;
-            height: auto;
-            padding: 0 2vw;
+          header > div, main > div > div {
+            max-width: 100vw !important;
+            padding: 0 8px !important;
           }
           nav {
-            margin-top: 4px;
             gap: 9px;
           }
-          main > div[style*="position: relative"] {
-            padding: 10vw 3vw;
-            font-size: 2rem !important;
-            max-width: 100vw;
+          main > div > div {
+            padding: 10vw 8px !important;
           }
         }
         @media (max-width: 400px) {
-          main > div[style*="position: relative"] {
+          main > div > div > div {
             font-size: 1.2rem !important;
           }
         }
