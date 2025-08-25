@@ -1,0 +1,90 @@
+🧠 Tavari Project Summary (Updated)
+This project is a secure, scalable internal system built using Supabase and a modular React frontend. It supports authenticated user access, PIN verification, business role management, and secure auditing. The frontend is structured using route protection, context providers, and role-based access logic.
+
+✅ Existing Project Features:
+Supabase-managed authentication (email/password)
+
+PIN-based second-layer verification after login
+
+users table with hashed pin values
+
+user_roles table supports:
+
+Multiple roles per user
+
+Business-scoped permissions
+
+Active/inactive flags
+
+Frontend routing using React Router
+
+Global UserContext and RoleContext
+
+Route guards based on session and role
+
+Conditional UI rendering (e.g. hide "Manage Roles" for non-owners)
+
+Full audit logging on login, logout, and dashboard/profile access
+
+Use of bcrypt for secure PIN comparison
+
+Logout flow logs user event and clears session
+
+Reset password via email has been disabled in favor of a custom flow:
+
+User enters email, phone, and pin
+
+If all match, they may reset their password
+
+🆕 Newly Added or Changed (as of July 29, 2025):
+🔁 PIN field is now pin, not pin_code in the users table
+
+✅ Role checking now uses user_roles table via user_id and business_id
+
+✅ UserContext provides current auth user globally
+
+✅ RoleContext provides the active business-scoped role for UI logic
+
+❌ email is no longer a reliable lookup key in users due to schema shift — logic must now use id (auth UID) for all lookups
+
+🧨 Severe issue emerged:
+
+Users are getting locked out on first login attempt
+
+This is unrelated to the PIN flow or localStorage
+
+The current login flow attempts to query users using .eq("email", email), which fails silently and breaks app navigation
+
+⚠️ URGENT PROBLEM (for new chat to solve)
+When logging in with correct email and password, users are immediately logged out or stuck in a broken state.
+There are no PIN attempts, no localStorage issues — it is happening at the email/password login stage.
+
+🛠 What the next chat needs to do:
+Review all uploaded files:
+
+Login.jsx
+
+Unlock.jsx
+
+useUserProfile.js
+
+UserContext.jsx
+
+RoleContext.jsx
+
+and anything else already uploaded
+
+Confirm how supabase.auth.signInWithPassword() is handled
+
+Fix the logic that currently tries to query the users table using .eq('email', email) instead of .eq('id', auth_user.id)
+
+Ensure that:
+
+Users with correct credentials successfully sign in
+
+The session is preserved
+
+Their role is loaded correctly from user_roles
+
+Redirect logic works without locking out or failing silently
+

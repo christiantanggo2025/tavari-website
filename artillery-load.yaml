@@ -1,0 +1,13 @@
+config:
+  target: 'https://iagcamwcfuiopmwefohz.supabase.co'
+  phases:
+    - duration: 10
+      arrivalRate: 10
+  defaults:
+    headers:
+      Authorization: "Bearer eyJhbGciOiJIUzI1NiIsImtpZCI6IlJNWGJtYXNaWFRqNkVvUkoiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lhZ2NhbXdjZnVpb3Btd2Vmb2h6LnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI5Y2FjNTkyYy1hYjViLTRhNDUtYmI1ZS0wZDQzMGZkZjU5ZWEiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzUzNzcxNzU0LCJpYXQiOjE3NTM3NjgxNTQsImVtYWlsIjoiMTBAdGFuZ2dvLmNhIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJlbWFpbCIsInByb3ZpZGVycyI6WyJlbWFpbCJdfSwidXNlcl9tZXRhZGF0YSI6eyJlbWFpbCI6IjEwQHRhbmdnby5jYSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInN1YiI6IjljYWM1OTJjLWFiNWItNGE0NS1iYjVlLTBkNDMwZmRmNTllYSJ9LCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImFhbCI6ImFhbDEiLCJhbXIiOlt7Im1ldGhvZCI6InBhc3N3b3JkIiwidGltZXN0YW1wIjoxNzUzNzY0NDY1fV0sInNlc3Npb25faWQiOiIyMGNiZmU0NS02NDIwLTQ2ZjAtOThmZS0xMWM1ZTUzNzUzYjQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.cywvUnrWR195cVy26WlDQo7PRGJ0RJ9NYwZM4YZu5Rs"
+      apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2NhbXdjZnVpb3Btd2Vmb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM1NjY1MTksImV4cCI6MjA2OTE0MjUxOX0.qIw6wSI7O3Yl6Av-LVfDYL9TyKWNpeH0f2WIl221QW4"
+scenarios:
+  - flow:
+      - get:
+          url: "/auth/v1/user"

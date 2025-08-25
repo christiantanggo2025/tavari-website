@@ -1,0 +1,92 @@
+Download the React DevTools for a better development experience: https://react.dev/link/react-devtools
+supabaseClient.js:9 Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+_GoTrueClient @ @supabase_supabase-js.js?v=c31e45dc:5157
+SupabaseAuthClient @ @supabase_supabase-js.js?v=c31e45dc:7235
+_initSupabaseAuthClient @ @supabase_supabase-js.js?v=c31e45dc:7433
+SupabaseClient @ @supabase_supabase-js.js?v=c31e45dc:7306
+createClient @ @supabase_supabase-js.js?v=c31e45dc:7473
+(anonymous) @ supabaseClient.js:9Understand this warning
+UserContext.jsx:13 📡 Checking session...
+UserContext.jsx:13 📡 Checking session...
+POSCategories.jsx:125 Uncaught ReferenceError: EditCategoryModal is not defined
+    at POSCategories (POSCategories.jsx:125:5)
+    at react-stack-bottom-frame (react-dom_client.js?v=c31e45dc:17424:20)
+    at renderWithHooks (react-dom_client.js?v=c31e45dc:4206:24)
+    at updateFunctionComponent (react-dom_client.js?v=c31e45dc:6619:21)
+    at beginWork (react-dom_client.js?v=c31e45dc:7654:20)
+    at runWithFiberInDEV (react-dom_client.js?v=c31e45dc:1485:72)
+    at performUnitOfWork (react-dom_client.js?v=c31e45dc:10868:98)
+    at workLoopSync (react-dom_client.js?v=c31e45dc:10728:43)
+    at renderRootSync (react-dom_client.js?v=c31e45dc:10711:13)
+    at performWorkOnRoot (react-dom_client.js?v=c31e45dc:10359:46)
+POSCategories @ POSCategories.jsx:125
+react-stack-bottom-frame @ react-dom_client.js?v=c31e45dc:17424
+renderWithHooks @ react-dom_client.js?v=c31e45dc:4206
+updateFunctionComponent @ react-dom_client.js?v=c31e45dc:6619
+beginWork @ react-dom_client.js?v=c31e45dc:7654
+runWithFiberInDEV @ react-dom_client.js?v=c31e45dc:1485
+performUnitOfWork @ react-dom_client.js?v=c31e45dc:10868
+workLoopSync @ react-dom_client.js?v=c31e45dc:10728
+renderRootSync @ react-dom_client.js?v=c31e45dc:10711
+performWorkOnRoot @ react-dom_client.js?v=c31e45dc:10359
+performWorkOnRootViaSchedulerTask @ react-dom_client.js?v=c31e45dc:11623
+performWorkUntilDeadline @ react-dom_client.js?v=c31e45dc:36
+<POSCategories>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=c31e45dc:250
+App @ App.jsx:115
+react-stack-bottom-frame @ react-dom_client.js?v=c31e45dc:17424
+renderWithHooksAgain @ react-dom_client.js?v=c31e45dc:4281
+renderWithHooks @ react-dom_client.js?v=c31e45dc:4217
+updateFunctionComponent @ react-dom_client.js?v=c31e45dc:6619
+beginWork @ react-dom_client.js?v=c31e45dc:7654
+runWithFiberInDEV @ react-dom_client.js?v=c31e45dc:1485
+performUnitOfWork @ react-dom_client.js?v=c31e45dc:10868
+workLoopSync @ react-dom_client.js?v=c31e45dc:10728
+renderRootSync @ react-dom_client.js?v=c31e45dc:10711
+performWorkOnRoot @ react-dom_client.js?v=c31e45dc:10359
+performWorkOnRootViaSchedulerTask @ react-dom_client.js?v=c31e45dc:11623
+performWorkUntilDeadline @ react-dom_client.js?v=c31e45dc:36
+<App>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=c31e45dc:250
+(anonymous) @ main.jsx:18Understand this error
+App.jsx:115 An error occurred in the <POSCategories> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+defaultOnUncaughtError @ react-dom_client.js?v=c31e45dc:6229
+logUncaughtError @ react-dom_client.js?v=c31e45dc:6283
+runWithFiberInDEV @ react-dom_client.js?v=c31e45dc:1485
+lane.callback @ react-dom_client.js?v=c31e45dc:6311
+callCallback @ react-dom_client.js?v=c31e45dc:4097
+commitCallbacks @ react-dom_client.js?v=c31e45dc:4109
+runWithFiberInDEV @ react-dom_client.js?v=c31e45dc:1487
+commitLayoutEffectOnFiber @ react-dom_client.js?v=c31e45dc:9029
+flushLayoutEffects @ react-dom_client.js?v=c31e45dc:11174
+commitRoot @ react-dom_client.js?v=c31e45dc:11080
+commitRootWhenReady @ react-dom_client.js?v=c31e45dc:10512
+performWorkOnRoot @ react-dom_client.js?v=c31e45dc:10457
+performWorkOnRootViaSchedulerTask @ react-dom_client.js?v=c31e45dc:11623
+performWorkUntilDeadline @ react-dom_client.js?v=c31e45dc:36
+<POSCategories>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=c31e45dc:250
+App @ App.jsx:115
+react-stack-bottom-frame @ react-dom_client.js?v=c31e45dc:17424
+renderWithHooksAgain @ react-dom_client.js?v=c31e45dc:4281
+renderWithHooks @ react-dom_client.js?v=c31e45dc:4217
+updateFunctionComponent @ react-dom_client.js?v=c31e45dc:6619
+beginWork @ react-dom_client.js?v=c31e45dc:7654
+runWithFiberInDEV @ react-dom_client.js?v=c31e45dc:1485
+performUnitOfWork @ react-dom_client.js?v=c31e45dc:10868
+workLoopSync @ react-dom_client.js?v=c31e45dc:10728
+renderRootSync @ react-dom_client.js?v=c31e45dc:10711
+performWorkOnRoot @ react-dom_client.js?v=c31e45dc:10359
+performWorkOnRootViaSchedulerTask @ react-dom_client.js?v=c31e45dc:11623
+performWorkUntilDeadline @ react-dom_client.js?v=c31e45dc:36
+<App>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=c31e45dc:250
+(anonymous) @ main.jsx:18Understand this warning
+UserContext.jsx:17 📡 Session result: {access_token: 'eyJhbGciOiJIUzI1NiIsImtpZCI6IlJNWGJtYXNaWFRqNkVvUk…xzZX0.HluFJYGwObPqMiEWNnShr_rateUrLwFjfeI7EXU0jbM', token_type: 'bearer', expires_in: 3600, expires_at: 1754198259, refresh_token: 'qduy4t2pcoko', …}
+UserContext.jsx:22 📡 Fetching user profile for ID: ea2e7ee6-907e-462d-93f7-7dee632b2afb
+UserContext.jsx:17 📡 Session result: {access_token: 'eyJhbGciOiJIUzI1NiIsImtpZCI6IlJNWGJtYXNaWFRqNkVvUk…xzZX0.HluFJYGwObPqMiEWNnShr_rateUrLwFjfeI7EXU0jbM', token_type: 'bearer', expires_in: 3600, expires_at: 1754198259, refresh_token: 'qduy4t2pcoko', …}
+UserContext.jsx:22 📡 Fetching user profile for ID: ea2e7ee6-907e-462d-93f7-7dee632b2afb

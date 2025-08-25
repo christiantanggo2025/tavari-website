@@ -1,0 +1,137 @@
+{
+  "name": "tavari-music-desktop",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Tavari Music Desktop Application - Professional background music system",
+  "main": "electron/main.cjs",
+  "homepage": "./",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "preview": "vite preview",
+    "deploy": "vite build && npx vercel --prod",
+    "electron": "electron .",
+    "electron-dev": "cross-env NODE_ENV=development electron .",
+    "electron-build": "electron-builder",
+    "electron-dist": "npm run build && electron-builder",
+    "preelectron-build": "npm run build",
+    "desktop:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron-dev\"",
+    "desktop:build": "node scripts/build-desktop.js",
+    "desktop:dist": "npm run build && npm run electron-dist",
+    "desktop:test": "npm run build && npm run electron .",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "build": {
+    "appId": "com.tavari.music-desktop",
+    "productName": "Tavari Music Desktop",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "!electron/remote-web",
+      "electron/remote-web/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tavari Music Desktop",
+      "installerIcon": "electron/assets/installer-icon.ico",
+      "uninstallerIcon": "electron/assets/installer-icon.ico",
+      "installerHeaderIcon": "electron/assets/header-icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "electron/assets/icon.icns",
+      "category": "public.app-category.music"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "electron/assets/icon.png",
+      "category": "Audio"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://updates.tavari.com/music-desktop"
+    }
+  },
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.873.0",
+    "@supabase/supabase-js": "^2.52.1",
+    "aws-sdk": "^2.1692.0",
+    "bcryptjs": "^3.0.2",
+    "buffer": "^6.0.3",
+    "cors": "^2.8.5",
+    "dayjs": "^1.11.13",
+    "electron-log": "^4.4.8",
+    "electron-updater": "^6.1.4",
+    "express": "^4.18.2",
+    "node-machine-id": "^1.1.12",
+    "qrcode": "^1.5.3",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-hot-toast": "^2.5.2",
+    "react-icons": "^5.5.0",
+    "react-router-dom": "^7.7.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "artillery": "^2.0.23",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^9.30.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "jest": "^30.0.5",
+    "vite": "^7.0.4",
+    "wait-on": "^7.2.0"
+  },
+  "keywords": [
+    "music",
+    "background-music",
+    "business",
+    "tavari",
+    "desktop",
+    "electron"
+  ],
+  "author": {
+    "name": "Tavari Systems",
+    "email": "support@tavari.com"
+  },
+  "license": "Proprietary"
+}
