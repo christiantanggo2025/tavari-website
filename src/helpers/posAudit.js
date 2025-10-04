@@ -7,15 +7,18 @@ export async function logAction({ action, context, metadata = {} }) {
     const business_id = localStorage.getItem('currentBusinessId') || null;
 
     const payload = {
+      business_id,
       action,
+      actor_id: user?.id || null,  // Changed from user_id to actor_id
+      actor_name: user?.email || null,  // Added actor_name
       context,
       metadata,
-      user_id: user?.id || null,
-      business_id,
-      created_at: new Date().toISOString(),
+      timestamp: new Date().toISOString(),  // Changed from created_at to timestamp
+      success: true  // Added success field
     };
 
-    // pos_audit_logs table: action (text), context (text), metadata (jsonb), user_id (uuid), business_id (uuid), created_at (timestamptz)
+    // pos_audit_logs table: business_id (uuid), action (varchar), actor_id (uuid), 
+    // actor_name (varchar), context (varchar), metadata (jsonb), timestamp (timestamptz), success (boolean)
     const { error } = await supabase.from('pos_audit_logs').insert(payload);
     if (error) {
       // Soft-fail — do not disrupt POS flow

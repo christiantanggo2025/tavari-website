@@ -35,7 +35,6 @@ const Register = () => {
     const hashed = await hashValue(password);
     const hashedPin = await hashValue(String(pin || '').trim());
 
-
     if (!user) {
       setErrorMsg('Signup failed — no user returned.');
       return;
@@ -69,13 +68,14 @@ const Register = () => {
     }
 
     const businessId = businessData.id;
-	await supabase.from('business_users').insert({
- 	 user_id: user.id,
-  	business_id: businessId,
-  	role: 'owner',
-	});
-	
-	localStorage.setItem('selectedBusinessId', businessId);
+    
+    await supabase.from('business_users').insert({
+      user_id: user.id,
+      business_id: businessId,
+      role: 'owner',
+    });
+    
+    localStorage.setItem('selectedBusinessId', businessId);
 
     await supabase.from('user_roles').insert({
       user_id: user.id,
@@ -83,6 +83,38 @@ const Register = () => {
       role: 'owner',
       active: true,
       custom_permissions: {},
+    });
+
+    // CREATE DEFAULT KITCHEN STATION FOR NEW BUSINESS
+    await supabase.from('pos_stations').insert({
+      business_id: businessId,
+      name: 'Kitchen',
+      description: 'Main kitchen station',
+      printer_ids: [],
+      is_active: true,
+      sort_order: 1,
+      has_screen: true,
+      screen_enabled: true,
+      screen_settings: {
+        auto_bump_minutes: 30,
+        display_mode: 'standard'
+      },
+      printer_settings: {
+        paper_width: 80,
+        auto_cut: true
+      }
+    });
+
+    // CREATE DEFAULT POS SETTINGS
+    await supabase.from('pos_settings').insert({
+      business_id: businessId,
+      tabs_enabled: true,
+      default_tab_limit: 500.00,
+      max_tab_limit: 1000.00,
+      tab_limit_requires_manager: true,
+      tab_warning_threshold: 0.8,
+      tip_enabled: true,
+      default_tip_percent: 0.15
     });
 
     await supabase.from('audit_logs').insert({

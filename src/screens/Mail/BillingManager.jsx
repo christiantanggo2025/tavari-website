@@ -1,7 +1,8 @@
-// screens/Mail/BillingManager.jsx - Debug Version
+// screens/Mail/BillingManager.jsx - With Email Pause Protection (CLEANED)
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
+import EmailPauseBanner from '../../components/EmailPauseBanner';
 import { 
   FiDollarSign, FiMail, FiTrendingUp, FiCalendar, FiDownload, 
   FiPause, FiPlay, FiCreditCard, FiPieChart, FiSettings,
@@ -16,32 +17,12 @@ const BillingManager = () => {
   const [usageHistory, setUsageHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [debugInfo, setDebugInfo] = useState({});
   const [activeTab, setActiveTab] = useState('overview');
   const [showPauseModal, setShowPauseModal] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
-  useEffect(() => {
-    console.log('🔍 BillingManager mounted');
-    console.log('🏢 Business from context:', business);
-    console.log('🆔 BusinessId:', businessId);
-    
-    if (businessId) {
-      loadBillingData();
-    } else {
-      console.warn('⚠️ No businessId found - checking business context...');
-      setDebugInfo({
-        businessContext: business,
-        businessId: businessId,
-        hasContext: !!business
-      });
-      setLoading(false);
-      setError('No business ID found. Please ensure you are logged in and have a business selected.');
-    }
-  }, [businessId, business]);
-
   const loadBillingData = async () => {
-    console.log('🔄 Starting loadBillingData for businessId:', businessId);
+    console.log('📄 Starting loadBillingData for businessId:', businessId);
     setLoading(true);
     setError(null);
     
@@ -56,16 +37,37 @@ const BillingManager = () => {
         end: endOfMonth.toISOString().split('T')[0]
       });
 
-      // First, let's check if the mail_billing table exists
+      // First, let's check if the mail_billing table exists and what data we have
       console.log('🗃️ Checking mail_billing table...');
+      console.log('📅 Looking for billing period:', {
+        start: startOfMonth.toISOString().split('T')[0],
+        end: endOfMonth.toISOString().split('T')[0],
+        businessId: businessId
+      });
       
-      const { data: currentBillingData, error: billingError } = await supabase
+      // First, let's see ALL billing records for this business to debug
+      const { data: allBillingData, error: allBillingError } = await supabase
+        .from('mail_billing')
+        .select('*')
+        .eq('business_id', businessId);
+        
+      console.log('🔍 All billing records for this business:', { 
+        data: allBillingData, 
+        error: allBillingError,
+        count: allBillingData?.length || 0
+      });
+      
+      // Now try to get the current billing record - handle duplicates by getting the most recent
+      const { data: currentBillingArray, error: billingError } = await supabase
         .from('mail_billing')
         .select('*')
         .eq('business_id', businessId)
-        .gte('billing_period_start', startOfMonth.toISOString().split('T')[0])
-        .lte('billing_period_end', endOfMonth.toISOString().split('T')[0])
-        .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no data
+        .eq('billing_period_start', startOfMonth.toISOString().split('T')[0])
+        .eq('billing_period_end', endOfMonth.toISOString().split('T')[0])
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const currentBillingData = currentBillingArray?.[0] || null;
 
       console.log('📊 Current billing query result:', { 
         data: currentBillingData, 
@@ -79,7 +81,7 @@ const BillingManager = () => {
 
       // If no current billing period exists, create one
       if (!currentBillingData) {
-        console.log('📝 No billing record found, creating new one...');
+        console.log('🆕 No billing record found, creating new one...');
         
         const newBillingRecord = {
           business_id: businessId,
@@ -137,32 +139,29 @@ const BillingManager = () => {
 
       setUsageHistory(historyData || []);
 
-      // Update debug info
-      setDebugInfo({
-        businessId,
-        currentBilling: currentBillingData,
-        historyCount: historyData?.length || 0,
-        billingPeriod: {
-          start: startOfMonth.toISOString().split('T')[0],
-          end: endOfMonth.toISOString().split('T')[0]
-        }
-      });
-
       console.log('✅ Billing data loaded successfully');
 
     } catch (err) {
       console.error('❌ Error loading billing data:', err);
       setError(`Failed to load billing data: ${err.message}`);
-      setDebugInfo({
-        error: err,
-        businessId,
-        errorCode: err.code,
-        errorDetails: err.details
-      });
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    console.log('🔍 BillingManager mounted');
+    console.log('🏢 Business from context:', business);
+    console.log('🆔 BusinessId:', businessId);
+    
+    if (businessId) {
+      loadBillingData();
+    } else {
+      console.warn('⚠️ No businessId found - checking business context...');
+      setLoading(false);
+      setError('No business ID found. Please ensure you are logged in and have a business selected.');
+    }
+  }, [businessId]); // Only depend on businessId, not the whole business object
 
   const calculateCurrentUsage = () => {
     if (!currentBilling) return { usagePercent: 0, remainingEmails: 0, isOverage: false };
@@ -238,16 +237,6 @@ const BillingManager = () => {
 
     return (
       <div style={styles.tabContent}>
-        {/* Debug Info */}
-        {process.env.NODE_ENV === 'development' && (
-          <div style={styles.debugPanel}>
-            <h4>🔍 Debug Info</h4>
-            <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
-            <p><strong>Current Billing:</strong> {currentBilling ? 'Found' : 'None'}</p>
-            <p><strong>Business ID:</strong> {businessId || 'Missing'}</p>
-          </div>
-        )}
-
         {/* Current Usage Overview */}
         <div style={styles.usageOverview}>
           <h3 style={styles.sectionTitle}>
@@ -517,7 +506,6 @@ const BillingManager = () => {
         <div style={styles.loadingState}>
           <FiRefreshCw style={{...styles.loadingIcon, animation: 'spin 1s linear infinite'}} />
           <p>Loading billing information...</p>
-          <p style={styles.loadingSubtext}>Business ID: {businessId || 'Not found'}</p>
         </div>
       </div>
     );
@@ -530,12 +518,6 @@ const BillingManager = () => {
           <FiAlertCircle style={styles.errorIcon} />
           <h3>Error Loading Billing Data</h3>
           <p>{error}</p>
-          {process.env.NODE_ENV === 'development' && (
-            <div style={styles.debugPanel}>
-              <h4>Debug Information:</h4>
-              <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
-            </div>
-          )}
           <button style={styles.retryButton} onClick={loadBillingData}>
             <FiRefreshCw style={styles.buttonIcon} />
             Retry
@@ -547,6 +529,9 @@ const BillingManager = () => {
 
   return (
     <div style={styles.container}>
+      {/* Email Pause Banner */}
+      <EmailPauseBanner />
+
       <div style={styles.header}>
         <h2 style={styles.title}>Usage & Billing</h2>
         <div style={styles.headerActions}>
@@ -644,7 +629,6 @@ const BillingManager = () => {
 };
 
 const styles = {
-  // ... keeping all the existing styles from the previous version
   container: {
     padding: '40px',
     maxWidth: '1200px',
@@ -725,14 +709,6 @@ const styles = {
     flexDirection: 'column',
     gap: '30px',
   },
-  debugPanel: {
-    backgroundColor: '#fff3cd',
-    border: '1px solid #ffeaa7',
-    borderRadius: '8px',
-    padding: '15px',
-    marginBottom: '20px',
-    fontSize: '12px',
-  },
   loadingState: {
     display: 'flex',
     flexDirection: 'column',
@@ -745,11 +721,6 @@ const styles = {
     fontSize: '48px',
     marginBottom: '20px',
     color: 'teal',
-  },
-  loadingSubtext: {
-    fontSize: '14px',
-    color: '#999',
-    marginTop: '10px',
   },
   errorState: {
     display: 'flex',
@@ -778,7 +749,6 @@ const styles = {
     gap: '8px',
     marginTop: '20px',
   },
-  // ... (continuing with all other styles from the original component)
   sectionTitle: {
     fontSize: '18px',
     fontWeight: 'bold',

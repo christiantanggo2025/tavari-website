@@ -1,0 +1,297 @@
+[
+  {
+    "table_schema": "public",
+    "table_name": "pos_inventory",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "users",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_sale_items",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_tax_rules",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_local_ads",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_system_logs",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "audit_logs",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_saved_orders",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_revenue_tracking",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_tab_payments",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_receipt_logs",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_settings",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_playlist_schedules",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_ad_time_rules",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_ad_schedule",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_tracks",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_playlists",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_playlist_tracks",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_custom_items",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_ads",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_qr_scans",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_loyalty_accounts",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_cart_items",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_audit_logs",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_loyalty_settings",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_ad_holiday_rules",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_refunds",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_ad_schedule_performance",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_ad_schedule_conflicts",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "music_business_hours",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_stations",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_refund_items",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_unsubscribes",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_settings",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_campaign_sends",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_audit_logs",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_contacts",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_contact_preferences_log",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_contact_segments",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_households",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_consent_log",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_contact_segment_memberships",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_contact_communications",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_campaigns",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_scheduled_campaigns",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_tabs",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_campaign_audit",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_billing",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_email_usage",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_ab_experiments",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_content_analytics",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_subject_tests",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_campaign_schedules",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_sending_queue",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_domains",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_bounces",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "mail_error_logs",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_tab_items",
+    "relrowsecurity": true
+  },
+  {
+    "table_schema": "public",
+    "table_name": "pos_loyalty_transactions",
+    "relrowsecurity": true
+  }
+]

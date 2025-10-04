@@ -1,8 +1,9 @@
-// screens/Mail/SendLogsScreen.jsx - Step 132: Send Logs UI
+// screens/Mail/SendLogsScreen.jsx - Step 132: Send Logs UI with Pause Protection
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
+import EmailPauseBanner from '../../components/EmailPauseBanner';
 import {
   FiSearch, FiFilter, FiDownload, FiRefreshCw, FiAlertTriangle, 
   FiCheckCircle, FiClock, FiX, FiMail, FiEye, FiCalendar, FiFileText
@@ -267,6 +268,11 @@ const SendLogsScreen = () => {
 
   return (
     <div style={styles.container}>
+      {/* Email Pause Banner */}
+      <EmailPauseBanner 
+        customMessage="Email sending is paused. Send logs show historical data only."
+      />
+
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
@@ -922,5 +928,18 @@ const styles = {
     wordBreak: 'break-all',
   },
 };
+
+// Add CSS animation for spinning icons
+if (!document.querySelector('#send-logs-styles')) {
+  const styleSheet = document.createElement('style');
+  styleSheet.id = 'send-logs-styles';
+  styleSheet.textContent = `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(styleSheet);
+}
 
 export default SendLogsScreen;

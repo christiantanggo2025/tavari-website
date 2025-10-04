@@ -4,11 +4,19 @@ import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
 import { 
   FiMail, FiUser, FiMapPin, FiGlobe, FiSave, FiRefreshCw, 
-  FiCheckCircle, FiAlertCircle, FiClock, FiShield, FiSettings
+  FiCheckCircle, FiAlertCircle, FiClock, FiShield, FiSettings,
+  FiPause, FiPlay, FiAlertTriangle
 } from 'react-icons/fi';
 
 const MailSettings = () => {
   const { business } = useBusiness();
+  
+  // Emergency pause state
+  const [emailSendingPaused, setEmailSendingPaused] = useState(() => {
+    const stored = localStorage.getItem('EMAIL_SENDING_PAUSED');
+    return stored ? JSON.parse(stored) : true; // Default to paused for safety
+  });
+  
   const [settings, setSettings] = useState({
     from_name: '',
     from_email: '',
@@ -40,6 +48,20 @@ const MailSettings = () => {
       loadSettings();
     }
   }, [businessId]);
+
+  const toggleEmailSending = () => {
+    const newState = !emailSendingPaused;
+    setEmailSendingPaused(newState);
+    localStorage.setItem('EMAIL_SENDING_PAUSED', JSON.stringify(newState));
+    
+    if (newState) {
+      setMessage('🚨 EMAIL SENDING PAUSED - All campaigns and receipt emails are now blocked');
+    } else {
+      setMessage('✅ EMAIL SENDING ENABLED - Campaigns and receipt emails can now be sent');
+    }
+    
+    setTimeout(() => setMessage(''), 5000);
+  };
 
   const loadSettings = async () => {
     try {
@@ -192,6 +214,11 @@ const MailSettings = () => {
       return;
     }
 
+    if (emailSendingPaused) {
+      setTestResult({ success: false, message: 'Email sending is currently paused. Enable sending first to test.' });
+      return;
+    }
+
     setTesting(true);
     setTestResult(null);
 
@@ -276,15 +303,93 @@ const MailSettings = () => {
       {message && (
         <div style={{
           ...styles.message,
-          backgroundColor: message.includes('Error') ? '#ffebee' : '#e8f5e8',
-          color: message.includes('Error') ? '#c62828' : '#2e7d32'
+          backgroundColor: message.includes('Error') ? '#ffebee' : 
+                          message.includes('PAUSED') ? '#fff3cd' : '#e8f5e8',
+          color: message.includes('Error') ? '#c62828' : 
+                 message.includes('PAUSED') ? '#856404' : '#2e7d32'
         }}>
-          {message.includes('Error') ? <FiAlertCircle /> : <FiCheckCircle />}
+          {message.includes('Error') ? <FiAlertCircle /> : 
+           message.includes('PAUSED') ? <FiAlertTriangle /> : <FiCheckCircle />}
           <span>{message}</span>
         </div>
       )}
 
       <div style={styles.content}>
+        {/* Emergency Email Controls */}
+        <div style={{
+          ...styles.section,
+          backgroundColor: emailSendingPaused ? '#ffebee' : '#e8f5e8',
+          border: emailSendingPaused ? '2px solid #f44336' : '2px solid #4caf50'
+        }}>
+          <h2 style={styles.sectionTitle}>
+            <FiAlertTriangle style={styles.sectionIcon} />
+            Emergency Email Controls
+          </h2>
+          
+          <div style={styles.emergencySection}>
+            <div style={styles.emergencyStatus}>
+              <div style={styles.statusIndicator}>
+                <div style={{
+                  ...styles.statusDot,
+                  backgroundColor: emailSendingPaused ? '#f44336' : '#4caf50'
+                }}></div>
+                <span style={{
+                  ...styles.statusText,
+                  color: emailSendingPaused ? '#f44336' : '#4caf50'
+                }}>
+                  Email Sending: {emailSendingPaused ? 'PAUSED' : 'ACTIVE'}
+                </span>
+              </div>
+              
+              <button 
+                style={{
+                  ...styles.emergencyButton,
+                  backgroundColor: emailSendingPaused ? '#4caf50' : '#f44336'
+                }}
+                onClick={toggleEmailSending}
+              >
+                {emailSendingPaused ? (
+                  <>
+                    <FiPlay style={styles.buttonIcon} />
+                    Enable Email Sending
+                  </>
+                ) : (
+                  <>
+                    <FiPause style={styles.buttonIcon} />
+                    Pause Email Sending
+                  </>
+                )}
+              </button>
+            </div>
+            
+            <div style={styles.emergencyDescription}>
+              {emailSendingPaused ? (
+                <>
+                  <FiAlertTriangle style={styles.warningIcon} />
+                  <div>
+                    <strong>All email sending is currently PAUSED</strong>
+                    <p>No campaigns or receipt emails can be sent until you enable email sending. This affects:</p>
+                    <ul>
+                      <li>Campaign bulk sends</li>
+                      <li>Test email sends</li>
+                      <li>Receipt email sends from POS</li>
+                      <li>All automated emails</li>
+                    </ul>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <FiCheckCircle style={styles.successIcon} />
+                  <div>
+                    <strong>Email sending is ACTIVE</strong>
+                    <p>All email functions are operational. Use the pause button above for emergency stops if needed.</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Email Configuration */}
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>
@@ -357,9 +462,13 @@ const MailSettings = () => {
           {/* Test Email Button */}
           <div style={styles.testSection}>
             <button 
-              style={styles.testButton}
+              style={{
+                ...styles.testButton,
+                opacity: emailSendingPaused ? 0.5 : 1,
+                cursor: emailSendingPaused ? 'not-allowed' : 'pointer'
+              }}
               onClick={handleTestEmail}
-              disabled={testing || !settings.from_email}
+              disabled={testing || !settings.from_email || emailSendingPaused}
             >
               {testing ? <FiRefreshCw style={styles.spinningIcon} /> : <FiMail />}
               {testing ? 'Testing...' : 'Test Email Configuration'}
@@ -601,6 +710,70 @@ const styles = {
     fontSize: '18px',
     color: 'teal',
   },
+  emergencySection: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+  },
+  emergencyStatus: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '20px',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: '8px',
+    flexWrap: 'wrap',
+    gap: '15px',
+  },
+  statusIndicator: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  statusDot: {
+    width: '16px',
+    height: '16px',
+    borderRadius: '50%',
+    animation: 'pulse 2s infinite',
+  },
+  statusText: {
+    fontSize: '18px',
+    fontWeight: 'bold',
+  },
+  emergencyButton: {
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '15px 25px',
+    fontSize: '16px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    transition: 'all 0.2s ease',
+  },
+  emergencyDescription: {
+    display: 'flex',
+    gap: '15px',
+    alignItems: 'flex-start',
+    padding: '20px',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: '8px',
+  },
+  warningIcon: {
+    fontSize: '24px',
+    color: '#f57c00',
+    marginTop: '2px',
+  },
+  successIcon: {
+    fontSize: '24px',
+    color: '#4caf50',
+    marginTop: '2px',
+  },
+  buttonIcon: {
+    fontSize: '16px',
+  },
   formGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
@@ -732,10 +905,17 @@ const styles = {
     socialGrid: {
       gridTemplateColumns: '1fr',
     },
+    emergencyStatus: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+    },
+    emergencyButton: {
+      justifyContent: 'center',
+    },
   },
 };
 
-// Add CSS animation for spinning icons
+// Add CSS animation for spinning icons and pulse effect
 if (!document.querySelector('#mail-settings-styles')) {
   const styleSheet = document.createElement('style');
   styleSheet.id = 'mail-settings-styles';
@@ -743,6 +923,11 @@ if (!document.querySelector('#mail-settings-styles')) {
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
     }
   `;
   document.head.appendChild(styleSheet);

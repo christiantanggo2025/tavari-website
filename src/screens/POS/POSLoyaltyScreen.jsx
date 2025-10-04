@@ -1,14 +1,31 @@
-// screens/POS/POSLoyaltyScreen.jsx
+// screens/POS/POSLoyaltyScreen.jsx - Updated with Auto-Apply Settings (Step 121)
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
-import { useBusinessContext } from '../../contexts/BusinessContext';
 import { logAction } from '../../helpers/posAudit';
+
+// Foundation Components
+import POSAuthWrapper from '../../components/Auth/POSAuthWrapper';
+import { usePOSAuth } from '../../hooks/usePOSAuth';
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
+import TavariCheckbox from '../../components/UI/TavariCheckbox';
+import { TavariStyles } from '../../utils/TavariStyles';
 
 const POSLoyaltyScreen = ({ 
   onCustomerSelected = null, // Callback when customer is selected for cart attachment
   standalone = true // true when opened as standalone screen, false when used as modal
 }) => {
-  const { selectedBusinessId } = useBusinessContext();
+  const navigate = useNavigate();
+  
+  // Use POS Auth hook
+  const auth = usePOSAuth({
+    requiredRoles: ['cashier', 'manager', 'owner'],
+    requireBusiness: true,
+    componentName: 'POSLoyaltyScreen'
+  });
+
+  // Use Tax Calculations hook (for loyalty calculations that might involve tax)
+  const taxCalculations = useTaxCalculations(auth.selectedBusinessId);
   
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -17,6 +34,7 @@ const POSLoyaltyScreen = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false); // NEW: Settings modal
   const [loyaltySettings, setLoyaltySettings] = useState({});
   
   // New customer form data
@@ -25,7 +43,9 @@ const POSLoyaltyScreen = ({
     customer_email: '',
     customer_phone: '',
     initial_balance: 0,
-    initial_points: 0
+    initial_points: 0,
+    email_notifications: true,
+    sms_notifications: false
   });
 
   // Balance adjustment data
@@ -37,42 +57,125 @@ const POSLoyaltyScreen = ({
   });
 
   useEffect(() => {
-    if (selectedBusinessId) {
+    if (auth.selectedBusinessId && auth.authUser) {
       loadLoyaltySettings();
       loadCustomers();
     }
-  }, [selectedBusinessId]);
+  }, [auth.selectedBusinessId, auth.authUser]);
 
   useEffect(() => {
-    if (searchTerm) {
-      searchCustomers();
-    } else {
-      loadCustomers();
+    if (auth.selectedBusinessId && auth.authUser) {
+      if (searchTerm) {
+        searchCustomers();
+      } else {
+        loadCustomers();
+      }
     }
-  }, [searchTerm]);
+  }, [searchTerm, auth.selectedBusinessId, auth.authUser]);
 
   const loadLoyaltySettings = async () => {
+    if (!auth.selectedBusinessId) return;
+
     try {
       const { data, error } = await supabase
         .from('pos_loyalty_settings')
         .select('*')
-        .eq('business_id', selectedBusinessId)
+        .eq('business_id', auth.selectedBusinessId)
         .single();
 
       if (error && error.code !== 'PGRST116') throw error; // Ignore "not found" error
-      setLoyaltySettings(data || {});
+      
+      // Set default settings if none exist
+      const defaultSettings = {
+        is_active: true,
+        loyalty_mode: 'points',
+        earn_rate_percentage: 5,
+        redemption_rate: 1000,
+        min_redemption: 5000,
+        max_redemption_per_day: 25000,
+        auto_apply: 'manual', // Step 121: Default to manual
+        allow_partial_redemption: true,
+        points_expire_days: null,
+        welcome_bonus_points: 0
+      };
+      
+      setLoyaltySettings(data ? { ...defaultSettings, ...data } : defaultSettings);
     } catch (err) {
       console.error('Error loading loyalty settings:', err);
     }
   };
 
+  // NEW: Update loyalty settings function (Step 121)
+  const updateLoyaltySettings = async (updatedSettings) => {
+    if (!auth.selectedBusinessId) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const settingsData = {
+        business_id: auth.selectedBusinessId,
+        ...updatedSettings,
+        updated_at: new Date().toISOString()
+      };
+
+      // Try to update first
+      const { data: existingData } = await supabase
+        .from('pos_loyalty_settings')
+        .select('id')
+        .eq('business_id', auth.selectedBusinessId)
+        .single();
+
+      let result;
+      if (existingData) {
+        // Update existing
+        result = await supabase
+          .from('pos_loyalty_settings')
+          .update(settingsData)
+          .eq('business_id', auth.selectedBusinessId)
+          .select()
+          .single();
+      } else {
+        // Insert new
+        result = await supabase
+          .from('pos_loyalty_settings')
+          .insert(settingsData)
+          .select()
+          .single();
+      }
+
+      if (result.error) throw result.error;
+
+      setLoyaltySettings(result.data);
+
+      await logAction({
+        action: 'loyalty_settings_updated',
+        context: 'POSLoyaltyScreen',
+        metadata: {
+          business_id: auth.selectedBusinessId,
+          updated_settings: updatedSettings
+        }
+      });
+
+      alert('Loyalty settings updated successfully!');
+
+    } catch (err) {
+      console.error('Error updating loyalty settings:', err);
+      setError('Failed to update settings: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadCustomers = async () => {
+    if (!auth.selectedBusinessId) return;
+
     try {
       setLoading(true);
       const { data, error } = await supabase
         .from('pos_loyalty_accounts')
         .select('*')
-        .eq('business_id', selectedBusinessId)
+        .eq('business_id', auth.selectedBusinessId)
         .eq('is_active', true)
         .order('last_activity', { ascending: false })
         .limit(50);
@@ -88,7 +191,7 @@ const POSLoyaltyScreen = ({
   };
 
   const searchCustomers = async () => {
-    if (!searchTerm.trim()) {
+    if (!searchTerm.trim() || !auth.selectedBusinessId) {
       loadCustomers();
       return;
     }
@@ -98,7 +201,7 @@ const POSLoyaltyScreen = ({
       const { data, error } = await supabase
         .from('pos_loyalty_accounts')
         .select('*')
-        .eq('business_id', selectedBusinessId)
+        .eq('business_id', auth.selectedBusinessId)
         .eq('is_active', true)
         .or(`customer_name.ilike.%${searchTerm}%,customer_email.ilike.%${searchTerm}%,customer_phone.ilike.%${searchTerm}%`)
         .order('last_activity', { ascending: false });
@@ -119,12 +222,17 @@ const POSLoyaltyScreen = ({
       return;
     }
 
+    if (!auth.selectedBusinessId || !auth.authUser) {
+      setError('Authentication error');
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
       const customerData = {
-        business_id: selectedBusinessId,
+        business_id: auth.selectedBusinessId,
         customer_name: newCustomer.customer_name.trim(),
         customer_email: newCustomer.customer_email.trim() || null,
         customer_phone: newCustomer.customer_phone.trim() || null,
@@ -133,7 +241,9 @@ const POSLoyaltyScreen = ({
         total_earned: 0,
         total_spent: 0,
         is_active: true,
-        created_by: (await supabase.auth.getUser()).data.user?.id,
+        email_notifications: newCustomer.email_notifications,
+        sms_notifications: newCustomer.sms_notifications,
+        created_by: auth.authUser.id,
         created_at: new Date().toISOString(),
         last_activity: new Date().toISOString()
       };
@@ -151,7 +261,7 @@ const POSLoyaltyScreen = ({
         await supabase
           .from('pos_loyalty_transactions')
           .insert({
-            business_id: selectedBusinessId,
+            business_id: auth.selectedBusinessId,
             loyalty_account_id: customer.id,
             transaction_type: 'initial_balance',
             amount: customerData.balance,
@@ -161,7 +271,7 @@ const POSLoyaltyScreen = ({
             points_before: 0,
             points_after: customerData.points,
             description: 'Initial account setup',
-            processed_by: (await supabase.auth.getUser()).data.user?.id,
+            processed_by: auth.authUser.id,
             processed_at: new Date().toISOString()
           });
       }
@@ -173,7 +283,9 @@ const POSLoyaltyScreen = ({
           customer_id: customer.id,
           customer_name: customer.customer_name,
           initial_balance: customerData.balance,
-          initial_points: customerData.points
+          initial_points: customerData.points,
+          email_notifications: customerData.email_notifications,
+          sms_notifications: customerData.sms_notifications
         }
       });
 
@@ -182,7 +294,9 @@ const POSLoyaltyScreen = ({
         customer_email: '',
         customer_phone: '',
         initial_balance: 0,
-        initial_points: 0
+        initial_points: 0,
+        email_notifications: true,
+        sms_notifications: false
       });
       setShowNewCustomerForm(false);
       loadCustomers();
@@ -205,6 +319,11 @@ const POSLoyaltyScreen = ({
 
     if (!adjustment.reason.trim()) {
       setError('Please provide a reason for the adjustment');
+      return;
+    }
+
+    if (!auth.selectedBusinessId || !auth.authUser) {
+      setError('Authentication error');
       return;
     }
 
@@ -246,7 +365,7 @@ const POSLoyaltyScreen = ({
       await supabase
         .from('pos_loyalty_transactions')
         .insert({
-          business_id: selectedBusinessId,
+          business_id: auth.selectedBusinessId,
           loyalty_account_id: selectedCustomer.id,
           transaction_type: adjustment.type === 'add' ? 'manual_add' : 'manual_subtract',
           amount: loyaltySettings.loyalty_mode === 'dollars' ? adjustmentAmount : 0,
@@ -256,7 +375,7 @@ const POSLoyaltyScreen = ({
           points_before: currentPoints,
           points_after: newPoints,
           description: `Manual adjustment: ${adjustment.reason}`,
-          processed_by: (await supabase.auth.getUser()).data.user?.id,
+          processed_by: auth.authUser.id,
           processed_at: new Date().toISOString()
         });
 
@@ -436,6 +555,219 @@ const POSLoyaltyScreen = ({
             <span style={styles.detailLabel}>Last Activity:</span>
             <span>{new Date(selectedCustomer.last_activity).toLocaleDateString()}</span>
           </div>
+
+          <div style={styles.detailItem}>
+            <span style={styles.detailLabel}>Email Notifications:</span>
+            <span>{selectedCustomer.email_notifications ? 'Enabled' : 'Disabled'}</span>
+          </div>
+
+          <div style={styles.detailItem}>
+            <span style={styles.detailLabel}>SMS Notifications:</span>
+            <span>{selectedCustomer.sms_notifications ? 'Enabled' : 'Disabled'}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // NEW: Loyalty Settings Modal (Step 121)
+  const renderLoyaltySettingsModal = () => {
+    if (!showSettingsModal) return null;
+
+    return (
+      <div style={styles.modal}>
+        <div style={styles.modalContent}>
+          <div style={styles.modalHeader}>
+            <h3>Loyalty Program Settings</h3>
+            <button 
+              style={styles.closeButton}
+              onClick={() => setShowSettingsModal(false)}
+            >
+              ×
+            </button>
+          </div>
+          
+          <div style={styles.modalBody}>
+            <div style={styles.settingsSection}>
+              <h4 style={styles.settingsSubtitle}>Program Status</h4>
+              <div style={styles.setting}>
+                <TavariCheckbox
+                  checked={loyaltySettings.is_active}
+                  onChange={(checked) => setLoyaltySettings(prev => ({ ...prev, is_active: checked }))}
+                  label="Enable loyalty program"
+                  id="loyalty-active"
+                />
+              </div>
+            </div>
+
+            {loyaltySettings.is_active && (
+              <>
+                <div style={styles.settingsSection}>
+                  <h4 style={styles.settingsSubtitle}>Auto-Apply Settings</h4>
+                  <div style={styles.setting}>
+                    <label style={styles.label}>Loyalty Application Mode:</label>
+                    <select
+                      value={loyaltySettings.auto_apply || 'manual'}
+                      onChange={(e) => setLoyaltySettings(prev => ({ ...prev, auto_apply: e.target.value }))}
+                      style={styles.select}
+                    >
+                      <option value="manual">Manual - Customer chooses when to use loyalty</option>
+                      <option value="always">Automatic - Apply loyalty rewards automatically</option>
+                      <option value="ask">Ask - Prompt customer at checkout</option>
+                    </select>
+                    <div style={styles.settingDescription}>
+                      {loyaltySettings.auto_apply === 'manual' && 
+                        'Customers must manually choose to apply loyalty rewards during checkout.'
+                      }
+                      {loyaltySettings.auto_apply === 'always' && 
+                        'Loyalty rewards will be automatically applied when available.'
+                      }
+                      {loyaltySettings.auto_apply === 'ask' && 
+                        'Cashier will be prompted to ask customer about using loyalty rewards.'
+                      }
+                    </div>
+                  </div>
+
+                  {loyaltySettings.auto_apply === 'always' && (
+                    <div style={styles.setting}>
+                      <TavariCheckbox
+                        checked={loyaltySettings.allow_partial_redemption}
+                        onChange={(checked) => setLoyaltySettings(prev => ({ ...prev, allow_partial_redemption: checked }))}
+                        label="Allow partial redemption when auto-applying"
+                        id="allow-partial"
+                      />
+                      <div style={styles.settingDescription}>
+                        When enabled, any available loyalty balance will be applied. When disabled, only minimum redemption amounts will be used.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={styles.settingsSection}>
+                  <h4 style={styles.settingsSubtitle}>Loyalty Mode</h4>
+                  <div style={styles.setting}>
+                    <label style={styles.label}>Loyalty System Type:</label>
+                    <select
+                      value={loyaltySettings.loyalty_mode || 'points'}
+                      onChange={(e) => setLoyaltySettings(prev => ({ ...prev, loyalty_mode: e.target.value }))}
+                      style={styles.select}
+                    >
+                      <option value="points">Points System</option>
+                      <option value="dollars">Dollar Credit System</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={styles.settingsSection}>
+                  <h4 style={styles.settingsSubtitle}>Earning & Redemption</h4>
+                  <div style={styles.setting}>
+                    <label style={styles.label}>Earn Rate:</label>
+                    <div style={styles.inputGroup}>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={loyaltySettings.earn_rate_percentage || 5}
+                        onChange={(e) => setLoyaltySettings(prev => ({ ...prev, earn_rate_percentage: parseFloat(e.target.value) || 5 }))}
+                        style={styles.modalInput}
+                      />
+                      <span>% of purchase</span>
+                    </div>
+                  </div>
+
+                  <div style={styles.setting}>
+                    <label style={styles.label}>Minimum Redemption:</label>
+                    <div style={styles.inputGroup}>
+                      {loyaltySettings.loyalty_mode === 'points' ? (
+                        <>
+                          <input
+                            type="number"
+                            min="0"
+                            value={loyaltySettings.min_redemption || 5000}
+                            onChange={(e) => setLoyaltySettings(prev => ({ ...prev, min_redemption: parseInt(e.target.value) || 5000 }))}
+                            style={styles.modalInput}
+                          />
+                          <span>points</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={(loyaltySettings.min_redemption || 5000) / (loyaltySettings.redemption_rate || 1000) * 10}
+                            onChange={(e) => {
+                              const dollarValue = parseFloat(e.target.value) || 5;
+                              const pointsValue = Math.round(dollarValue * (loyaltySettings.redemption_rate || 1000) / 10);
+                              setLoyaltySettings(prev => ({ ...prev, min_redemption: pointsValue }));
+                            }}
+                            style={styles.modalInput}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={styles.setting}>
+                    <label style={styles.label}>Daily Redemption Limit:</label>
+                    <div style={styles.inputGroup}>
+                      {loyaltySettings.loyalty_mode === 'points' ? (
+                        <>
+                          <input
+                            type="number"
+                            min="0"
+                            value={loyaltySettings.max_redemption_per_day || 25000}
+                            onChange={(e) => setLoyaltySettings(prev => ({ ...prev, max_redemption_per_day: parseInt(e.target.value) || 25000 }))}
+                            style={styles.modalInput}
+                          />
+                          <span>points</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={(loyaltySettings.max_redemption_per_day || 25000) / (loyaltySettings.redemption_rate || 1000) * 10}
+                            onChange={(e) => {
+                              const dollarValue = parseFloat(e.target.value) || 25;
+                              const pointsValue = Math.round(dollarValue * (loyaltySettings.redemption_rate || 1000) / 10);
+                              setLoyaltySettings(prev => ({ ...prev, max_redemption_per_day: pointsValue }));
+                            }}
+                            style={styles.modalInput}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          
+          {error && <div style={styles.error}>{error}</div>}
+          
+          <div style={styles.modalActions}>
+            <button
+              style={styles.cancelButton}
+              onClick={() => setShowSettingsModal(false)}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              style={styles.saveButton}
+              onClick={() => {
+                updateLoyaltySettings(loyaltySettings);
+                setShowSettingsModal(false);
+              }}
+              disabled={loading}
+            >
+              {loading ? 'Saving...' : 'Save Settings'}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -485,7 +817,7 @@ const POSLoyaltyScreen = ({
     );
   }
 
-  return (
+  const renderMainContent = () => (
     <div style={styles.container}>
       <div style={styles.header}>
         <h2>Loyalty Customers</h2>
@@ -504,6 +836,13 @@ const POSLoyaltyScreen = ({
               style={styles.searchInput}
             />
           </div>
+          
+          <button
+            style={styles.settingsButton}
+            onClick={() => setShowSettingsModal(true)}
+          >
+            ⚙️ Settings
+          </button>
           
           <button
             style={styles.newCustomerButton}
@@ -610,6 +949,24 @@ const POSLoyaltyScreen = ({
                   />
                 </div>
               )}
+
+              <div style={styles.checkboxGroup}>
+                <TavariCheckbox
+                  checked={newCustomer.email_notifications}
+                  onChange={(checked) => setNewCustomer({...newCustomer, email_notifications: checked})}
+                  label="Email notifications"
+                  size="md"
+                />
+              </div>
+
+              <div style={styles.checkboxGroup}>
+                <TavariCheckbox
+                  checked={newCustomer.sms_notifications}
+                  onChange={(checked) => setNewCustomer({...newCustomer, sms_notifications: checked})}
+                  label="SMS notifications"
+                  size="md"
+                />
+              </div>
             </div>
             
             {error && <div style={styles.error}>{error}</div>}
@@ -728,342 +1085,407 @@ const POSLoyaltyScreen = ({
           </div>
         </div>
       )}
+
+      {/* NEW: Loyalty Settings Modal (Step 121) */}
+      {renderLoyaltySettingsModal()}
     </div>
+  );
+
+  return (
+    <POSAuthWrapper
+      requiredRoles={['cashier', 'manager', 'owner']}
+      requireBusiness={true}
+      componentName="POSLoyaltyScreen"
+      onAuthReady={(authData) => {
+        console.log('POSLoyaltyScreen: Auth ready with data:', authData);
+      }}
+    >
+      {renderMainContent()}
+    </POSAuthWrapper>
   );
 };
 
+// Updated styles using TavariStyles - Added new settings styles
 const styles = {
   container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    backgroundColor: '#f8f9fa',
-    padding: '20px',
-    paddingTop: '100px',
-    boxSizing: 'border-box'
+    ...TavariStyles.layout.container
   },
+  
   header: {
-    marginBottom: '30px',
+    marginBottom: TavariStyles.spacing['2xl'],
     textAlign: 'center'
   },
+  
   content: {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden'
   },
+  
   topActions: {
-    display: 'flex',
-    gap: '15px',
-    marginBottom: '20px',
-    alignItems: 'center'
+    ...TavariStyles.layout.flexBetween,
+    gap: TavariStyles.spacing.lg,
+    marginBottom: TavariStyles.spacing.xl
   },
+  
   searchSection: {
     flex: 1
   },
+  
   searchInput: {
+    ...TavariStyles.components.form.input,
     width: '100%',
-    padding: '12px',
-    border: '2px solid #008080',
-    borderRadius: '6px',
-    fontSize: '16px'
+    border: `2px solid ${TavariStyles.colors.primary}`,
+    fontSize: TavariStyles.typography.fontSize.lg
   },
-  newCustomerButton: {
-    padding: '12px 20px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
+  
+  // NEW: Settings button (Step 121)
+  settingsButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.secondary,
+    ...TavariStyles.components.button.sizes.lg,
     whiteSpace: 'nowrap'
   },
-  errorBanner: {
-    backgroundColor: '#fee2e2',
-    color: '#dc2626',
-    padding: '15px',
-    borderRadius: '6px',
-    marginBottom: '20px'
+  
+  newCustomerButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.primary,
+    ...TavariStyles.components.button.sizes.lg,
+    whiteSpace: 'nowrap'
   },
+  
+  errorBanner: {
+    ...TavariStyles.components.banner.base,
+    ...TavariStyles.components.banner.variants.error,
+    marginBottom: TavariStyles.spacing.xl
+  },
+  
   mainContent: {
     display: 'flex',
-    gap: '20px',
+    gap: TavariStyles.spacing.xl,
     flex: 1,
     overflow: 'hidden'
   },
+  
   leftPanel: {
     flex: 1,
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '20px',
+    ...TavariStyles.layout.card,
+    padding: TavariStyles.spacing.xl,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column'
   },
+  
   rightPanel: {
     flex: 1,
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '20px',
+    ...TavariStyles.layout.card,
+    padding: TavariStyles.spacing.xl,
     overflow: 'auto'
   },
+  
   loading: {
+    ...TavariStyles.components.loading.container,
     textAlign: 'center',
-    padding: '40px',
-    color: '#6b7280'
+    padding: TavariStyles.spacing['4xl'],
+    color: TavariStyles.colors.gray500
   },
+  
   emptyState: {
     textAlign: 'center',
-    padding: '40px',
-    color: '#6b7280'
+    padding: TavariStyles.spacing['4xl'],
+    color: TavariStyles.colors.gray500
   },
+  
   emptyIcon: {
-    fontSize: '48px',
-    marginBottom: '15px'
+    fontSize: TavariStyles.typography.fontSize['4xl'],
+    marginBottom: TavariStyles.spacing.lg
   },
+  
   emptyTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    marginBottom: '8px'
+    fontSize: TavariStyles.typography.fontSize.xl,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    marginBottom: TavariStyles.spacing.sm
   },
+  
   emptyText: {
-    fontSize: '14px'
+    fontSize: TavariStyles.typography.fontSize.base
   },
+  
   customerList: {
     flex: 1,
     overflowY: 'auto',
-    gap: '8px',
+    gap: TavariStyles.spacing.sm,
     display: 'flex',
     flexDirection: 'column'
   },
+  
   customerCard: {
     display: 'flex',
     justifyContent: 'space-between',
-    padding: '15px',
-    border: '2px solid #e5e7eb',
-    borderRadius: '8px',
+    padding: TavariStyles.spacing.lg,
+    border: `2px solid ${TavariStyles.colors.gray200}`,
+    borderRadius: TavariStyles.borderRadius.lg,
     cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    backgroundColor: 'white'
+    transition: TavariStyles.transitions.normal,
+    backgroundColor: TavariStyles.colors.white
   },
+  
   customerCardSelected: {
-    borderColor: '#008080',
-    backgroundColor: '#f0fdfa'
+    borderColor: TavariStyles.colors.primary,
+    backgroundColor: TavariStyles.colors.gray50
   },
+  
   customerInfo: {
     flex: 1
   },
+  
   customerName: {
-    fontSize: '16px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '4px'
+    fontSize: TavariStyles.typography.fontSize.lg,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.gray800,
+    marginBottom: TavariStyles.spacing.xs
   },
+  
   customerContact: {
-    fontSize: '14px',
-    color: '#6b7280',
-    marginBottom: '2px'
+    fontSize: TavariStyles.typography.fontSize.base,
+    color: TavariStyles.colors.gray600,
+    marginBottom: TavariStyles.spacing.xs
   },
+  
   customerActivity: {
-    fontSize: '12px',
-    color: '#9ca3af',
-    marginTop: '6px'
+    fontSize: TavariStyles.typography.fontSize.xs,
+    color: TavariStyles.colors.gray400,
+    marginTop: TavariStyles.spacing.sm
   },
+  
   customerBalance: {
     textAlign: 'right',
     minWidth: '120px'
   },
+  
   pointsBalance: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#008080'
+    fontSize: TavariStyles.typography.fontSize.xl,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.primary
   },
+  
   dollarBalance: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#008080'
+    fontSize: TavariStyles.typography.fontSize.xl,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.primary
   },
+  
   customerTotals: {
-    fontSize: '11px',
-    color: '#6b7280',
-    marginTop: '4px'
+    fontSize: TavariStyles.typography.fontSize.xs,
+    color: TavariStyles.colors.gray500,
+    marginTop: TavariStyles.spacing.xs
   },
+  
   selectPrompt: {
     textAlign: 'center',
     padding: '60px 20px',
-    color: '#6b7280'
+    color: TavariStyles.colors.gray500
   },
+  
   selectIcon: {
-    fontSize: '48px',
-    marginBottom: '15px'
+    fontSize: TavariStyles.typography.fontSize['4xl'],
+    marginBottom: TavariStyles.spacing.lg
   },
+  
   customerDetails: {
     height: '100%'
   },
+  
   detailsHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '20px',
-    paddingBottom: '15px',
-    borderBottom: '2px solid #008080'
+    ...TavariStyles.layout.flexBetween,
+    marginBottom: TavariStyles.spacing.xl,
+    paddingBottom: TavariStyles.spacing.lg,
+    borderBottom: `2px solid ${TavariStyles.colors.primary}`
   },
+  
   adjustButton: {
-    padding: '8px 16px',
-    backgroundColor: '#f59e0b',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    cursor: 'pointer'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.warning,
+    ...TavariStyles.components.button.sizes.sm
   },
+  
   detailsGrid: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px'
+    gap: TavariStyles.spacing.lg
   },
+  
   detailItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    padding: '10px 0',
-    borderBottom: '1px solid #f3f4f6'
+    ...TavariStyles.layout.flexBetween,
+    padding: `${TavariStyles.spacing.md} 0`,
+    borderBottom: `1px solid ${TavariStyles.colors.gray100}`
   },
+  
   detailLabel: {
-    fontWeight: 'bold',
-    color: '#374151'
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.gray700
   },
+  
   balanceValue: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#008080'
+    fontSize: TavariStyles.typography.fontSize.xl,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.primary
   },
+  
   modal: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000
+    ...TavariStyles.components.modal.overlay
   },
+  
   modalContent: {
-    backgroundColor: 'white',
-    padding: '30px',
-    borderRadius: '8px',
+    ...TavariStyles.components.modal.content,
     maxWidth: '500px',
-    width: '90%',
-    maxHeight: '90vh',
-    overflowY: 'auto'
+    width: '90%'
   },
+  
   modalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '20px',
-    paddingBottom: '15px',
-    borderBottom: '2px solid #008080'
+    ...TavariStyles.components.modal.header
   },
+  
   closeButton: {
     backgroundColor: 'transparent',
     border: 'none',
-    fontSize: '24px',
+    fontSize: TavariStyles.typography.fontSize['2xl'],
     cursor: 'pointer',
-    color: '#6b7280'
+    color: TavariStyles.colors.gray500
   },
+  
+  // NEW: Settings modal styles (Step 121)
+  modalBody: {
+    ...TavariStyles.components.modal.body,
+    maxHeight: '70vh',
+    overflowY: 'auto'
+  },
+  
+  settingsSection: {
+    marginBottom: TavariStyles.spacing.xl,
+    paddingBottom: TavariStyles.spacing.lg,
+    borderBottom: `1px solid ${TavariStyles.colors.gray200}`
+  },
+  
+  settingsSubtitle: {
+    fontSize: TavariStyles.typography.fontSize.lg,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.gray800,
+    marginBottom: TavariStyles.spacing.md
+  },
+  
+  setting: {
+    marginBottom: TavariStyles.spacing.lg
+  },
+  
+  settingDescription: {
+    fontSize: TavariStyles.typography.fontSize.xs,
+    color: TavariStyles.colors.gray600,
+    marginTop: TavariStyles.spacing.xs,
+    fontStyle: 'italic',
+    lineHeight: '1.4'
+  },
+  
+  inputGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: TavariStyles.spacing.sm
+  },
+  
   form: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px'
+    gap: TavariStyles.spacing.lg
   },
+  
   formGroup: {
     display: 'flex',
     flexDirection: 'column'
   },
+  
+  checkboxGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: TavariStyles.spacing.sm
+  },
+  
   label: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    marginBottom: '6px'
+    ...TavariStyles.components.form.label
   },
+  
   input: {
-    padding: '10px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px'
+    ...TavariStyles.components.form.input
   },
+  
+  modalInput: {
+    ...TavariStyles.components.form.input,
+    width: '100%'
+  },
+  
   select: {
-    padding: '10px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px'
+    ...TavariStyles.components.form.select,
+    width: '100%'
   },
+  
   textarea: {
-    padding: '10px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px',
+    ...TavariStyles.components.form.input,
     fontFamily: 'inherit',
     resize: 'vertical'
   },
+  
   currentBalance: {
-    backgroundColor: '#f0fdfa',
-    color: '#008080',
-    padding: '15px',
-    borderRadius: '6px',
-    marginBottom: '20px',
-    fontSize: '16px',
-    fontWeight: 'bold',
+    backgroundColor: TavariStyles.colors.gray50,
+    color: TavariStyles.colors.primary,
+    padding: TavariStyles.spacing.lg,
+    borderRadius: TavariStyles.borderRadius.md,
+    marginBottom: TavariStyles.spacing.xl,
+    fontSize: TavariStyles.typography.fontSize.lg,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
     textAlign: 'center'
   },
+  
   error: {
-    color: '#dc2626',
-    fontSize: '14px',
-    marginTop: '10px',
-    padding: '10px',
-    backgroundColor: '#fee2e2',
-    borderRadius: '4px'
+    color: TavariStyles.colors.errorText,
+    fontSize: TavariStyles.typography.fontSize.base,
+    marginTop: TavariStyles.spacing.md,
+    padding: TavariStyles.spacing.md,
+    backgroundColor: TavariStyles.colors.errorBg,
+    borderRadius: TavariStyles.borderRadius.sm
   },
+  
   modalActions: {
-    display: 'flex',
-    gap: '10px',
-    marginTop: '25px'
+    ...TavariStyles.components.modal.footer
   },
+  
   cancelButton: {
-    flex: 1,
-    padding: '12px',
-    backgroundColor: '#6b7280',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.secondary,
+    flex: 1
   },
+  
   createButton: {
-    flex: 1,
-    padding: '12px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.primary,
+    flex: 1
   },
+  
+  saveButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.primary,
+    flex: 1
+  },
+  
   adjustSubmitButton: {
-    flex: 1,
-    padding: '12px',
-    backgroundColor: '#f59e0b',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.warning,
+    flex: 1
   },
+  
   modalCustomerList: {
     maxHeight: '300px',
     overflowY: 'auto',
-    marginBottom: '20px'
+    marginBottom: TavariStyles.spacing.xl
   }
 };
 

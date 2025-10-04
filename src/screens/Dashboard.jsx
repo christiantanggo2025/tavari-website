@@ -6,6 +6,8 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { useBusiness } from "../contexts/BusinessContext";
 import useAccessProtection from '../hooks/useAccessProtection';
 import SessionManager from '../components/SessionManager';
+import HelcimTerminalWorkflow from '../components/POS/HelcimTerminalWorkflow';
+import HelcimBackendIntegration from '../components/POS/HelcimBackendIntegration';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -82,6 +84,22 @@ const Dashboard = () => {
     navigate('/login');
   };
 
+  const handlePaymentComplete = (result) => {
+    console.log('Helcim payment completed:', result);
+    
+    // You can add additional handling here such as:
+    // - Update POS cart
+    // - Save transaction to database
+    // - Print receipt
+    // - Show success message
+    
+    if (result.success) {
+      alert(`Payment successful! Transaction ID: ${result.transactionId}`);
+    } else {
+      alert(`Payment failed: ${result.error}`);
+    }
+  };
+
   return (
     <SessionManager>
       <div style={styles.container}>
@@ -100,10 +118,10 @@ const Dashboard = () => {
         ) : (
           <p>Loading user info...</p>
         )}
+        
         <div style={styles.buttonContainer}>
           {(profile?.roles?.includes('owner') || profile?.roles?.includes('admin')) && (
             <>
-
               <div style={styles.kpiSection}>
                 <div style={styles.kpiCard}>
                   <h3>Total Sales</h3>
@@ -121,6 +139,21 @@ const Dashboard = () => {
             </>
           )}
         </div>
+
+        {/* Helcim Terminal Integration Section */}
+        {business?.id && (
+          <div style={styles.helcimSection}>
+            <HelcimTerminalWorkflow 
+              businessId={business.id} 
+              onPaymentComplete={handlePaymentComplete}
+            />
+            
+            {/* Integration Guide - can be hidden after setup */}
+            <div style={styles.integrationGuide}>
+              <HelcimBackendIntegration />
+            </div>
+          </div>
+        )}
       </div>
     </SessionManager>
   );
@@ -155,7 +188,6 @@ const styles = {
     marginTop: '40px',
     flexWrap: 'wrap',
   },
-
   kpiCard: {
     backgroundColor: '#f0f0f0',
     padding: '20px',
@@ -164,6 +196,18 @@ const styles = {
     textAlign: 'center',
     boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)',
   },
+  helcimSection: {
+    marginTop: '40px',
+    maxWidth: '1200px',
+    margin: '40px auto',
+  },
+  integrationGuide: {
+    marginTop: '40px',
+    padding: '20px',
+    backgroundColor: '#f9f9f9',
+    borderRadius: '8px',
+    border: '2px solid #e5e7eb'
+  }
 };
 
 export default Dashboard;

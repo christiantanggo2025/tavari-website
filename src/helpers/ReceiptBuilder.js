@@ -1,756 +1,924 @@
-// helpers/ReceiptBuilder.js
-// Steps 61-62, 85: Generate receipt HTML for all types with QR codes and tax calculation
-
+// helpers/ReceiptBuilder.js - ENHANCED WITH PROPER GIFT RECEIPT FORMAT
 export const RECEIPT_TYPES = {
   STANDARD: 'standard',
   GIFT: 'gift',
   KITCHEN: 'kitchen',
-  REFUND: 'refund',
-  REPRINT: 'reprint',
-  EMAIL: 'email'
+  EMAIL: 'email',
+  REPRINT: 'reprint'
 };
 
-/**
- * Generate a simple QR code using ASCII characters
- * In production, you'd use a proper QR library like qrcode.js
- */
-function generateSimpleQR(data) {
-  // This is a placeholder - in production use a real QR library
-  const qrSize = 15;
-  const hash = data.split('').reduce((a, b) => {
-    a = ((a << 5) - a) + b.charCodeAt(0);
-    return a & a;
-  }, 0);
-  
-  let qr = '';
-  for (let i = 0; i < qrSize; i++) {
-    for (let j = 0; j < qrSize; j++) {
-      const seed = (i * qrSize + j + Math.abs(hash)) % 4;
-      qr += seed < 2 ? '█' : '░';
-    }
-    qr += '\n';
-  }
-  return qr;
-}
+// Canadian cash rounding function
+const roundToCashNickel = (amount) => {
+  return Math.round(amount * 20) / 20; // Round to nearest 0.05
+};
 
-/**
- * Get business information with real data or sensible defaults
- */
-function getBusinessInfo(businessSettings) {
-  return {
-    name: businessSettings.business_name || 'Tavari POS Demo',
-    address1: businessSettings.business_address || '123 Main Street',
-    address2: businessSettings.business_city ? 
-      `${businessSettings.business_city}, ${businessSettings.business_state || 'ON'} ${businessSettings.business_postal || 'N1A 1A1'}` :
-      'Your City, ON N1A 1A1',
-    phone: businessSettings.business_phone || '(519) 555-0123',
-    email: businessSettings.business_email || 'hello@yourbusiness.com',
-    website: businessSettings.business_website || 'www.yourbusiness.com',
-    tax_number: businessSettings.tax_number || 'HST# 123456789RT0001'
-  };
-}
+// Format currency with proper rounding
+const formatCurrency = (amount, isCash = false) => {
+  const roundedAmount = isCash ? roundToCashNickel(amount) : amount;
+  return `$${roundedAmount.toFixed(2)}`;
+};
 
-/**
- * Generate receipt HTML for different receipt types
- * @param {Object} saleData - Complete sale data including items, payments, customer info
- * @param {String} receiptType - Type of receipt to generate
- * @param {Object} businessSettings - Business configuration for receipt footer, tax rules, etc.
- * @param {Object} options - Additional options like reprint reason, refund details
- */
-export function generateReceiptHTML(saleData, receiptType = RECEIPT_TYPES.STANDARD, businessSettings = {}, options = {}) {
-  const receiptId = `${saleData.sale_number || 'RECEIPT'}-${Date.now()}`;
-  const timestamp = new Date().toLocaleString();
-  const business = getBusinessInfo(businessSettings);
-  
-  // Generate QR code data for receipt lookup
-  const qrData = JSON.stringify({
-    type: 'receipt_lookup',
-    sale_id: saleData.sale_id,
-    sale_number: saleData.sale_number,
-    business_id: saleData.business_id,
-    total: saleData.final_total || saleData.total_amount,
-    date: saleData.created_at || new Date().toISOString()
+export const generateReceiptHTML = (saleData, receiptType = RECEIPT_TYPES.STANDARD, businessSettings = {}, options = {}) => {
+  const isKitchenReceipt = receiptType === RECEIPT_TYPES.KITCHEN;
+  const isGiftReceipt = receiptType === RECEIPT_TYPES.GIFT;
+  const isReprint = receiptType === RECEIPT_TYPES.REPRINT;
+
+  // Business information with fallbacks
+  const businessName = businessSettings.business_name || 'Your Business Name';
+  const businessAddress = businessSettings.business_address || '123 Main St';
+  const businessCity = businessSettings.business_city || 'Your City';
+  const businessState = businessSettings.business_state || 'ON';
+  const businessPostal = businessSettings.business_postal || 'N1A 1A1';
+  const businessPhone = businessSettings.business_phone || '(555) 123-4567';
+  const businessEmail = businessSettings.business_email || 'hello@yourbusiness.com';
+  const taxNumber = businessSettings.tax_number || 'HST#123456789';
+
+  // Sale data with fallbacks
+  const saleNumber = saleData.sale_number || 'Unknown';
+  const saleDate = new Date(saleData.created_at || Date.now()).toLocaleString('en-CA', {
+    timeZone: businessSettings.timezone || 'America/Toronto',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   });
 
-  // Base receipt styles
-  const styles = `
-    <style>
-      .receipt {
-        font-family: 'Courier New', monospace;
-        width: 280px;
-        margin: 0 auto;
-        padding: 10px;
-        background: white;
-        color: black;
-        font-size: 12px;
-        line-height: 1.4;
-      }
-      .header {
-        text-align: center;
-        border-bottom: 2px solid #000;
-        padding-bottom: 10px;
-        margin-bottom: 15px;
-      }
-      .business-name {
-        font-size: 16px;
-        font-weight: bold;
-        margin-bottom: 5px;
-      }
-      .business-info {
-        font-size: 10px;
-        margin-bottom: 2px;
-      }
-      .receipt-title {
-        font-size: 14px;
-        font-weight: bold;
-        margin: 10px 0;
-      }
-      .receipt-info {
-        margin-bottom: 15px;
-        font-size: 11px;
-      }
-      .items-section {
-        border-bottom: 1px solid #000;
-        padding-bottom: 10px;
-        margin-bottom: 10px;
-      }
-      .item {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 3px;
-      }
-      .item-name {
-        flex: 1;
-        padding-right: 10px;
-      }
-      .item-price {
-        white-space: nowrap;
-      }
-      .modifier {
-        margin-left: 15px;
-        font-size: 10px;
-        color: #666;
-        font-style: italic;
-      }
-      .totals-section {
-        border-bottom: 1px solid #000;
-        padding-bottom: 10px;
-        margin-bottom: 10px;
-      }
-      .total-row {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 2px;
-      }
-      .total-final {
-        font-weight: bold;
-        font-size: 14px;
-        border-top: 1px solid #000;
-        padding-top: 5px;
-        margin-top: 5px;
-      }
-      .payment-section {
-        margin-bottom: 15px;
-      }
-      .payment-row {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 2px;
-      }
-      .footer {
-        text-align: center;
-        border-top: 1px solid #000;
-        padding-top: 10px;
-        font-size: 10px;
-      }
-      .qr-code {
-        text-align: center;
-        margin: 15px 0;
-        font-family: monospace;
-        font-size: 8px;
-        line-height: 0.8;
-        white-space: pre;
-      }
-      .qr-label {
-        font-family: 'Courier New', monospace;
-        font-size: 10px;
-        margin-bottom: 5px;
-      }
-      .kitchen-priority {
-        background: #ffeb3b;
-        color: #000;
-        padding: 5px;
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 10px;
-      }
-      .refund-notice {
-        background: #f44336;
-        color: white;
-        padding: 5px;
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 10px;
-      }
-      .gift-notice {
-        background: #4caf50;
-        color: white;
-        padding: 5px;
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 10px;
-      }
-      .reprint-notice {
-        background: #ff9800;
-        color: white;
-        padding: 5px;
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 10px;
-      }
-      .signature-line {
-        border-top: 1px solid #000;
-        margin-top: 30px;
-        padding-top: 5px;
-        text-align: center;
-      }
-      @media print {
-        .receipt {
-          width: auto;
-          margin: 0;
-          padding: 0;
-        }
-      }
-    </style>
-  `;
+  const items = saleData.items || [];
+  const subtotal = saleData.subtotal || 0;
+  const finalTotal = saleData.final_total || 0;
+  const payments = saleData.payments || [];
+  const tipAmount = saleData.tip_amount || 0;
+  const changeGiven = saleData.change_given || 0;
+  const discountAmount = saleData.discount_amount || 0;
+  const loyaltyRedemption = saleData.loyalty_redemption || 0;
 
-  // Receipt type specific notices
-  const getReceiptNotice = () => {
-    switch (receiptType) {
-      case RECEIPT_TYPES.KITCHEN:
-        return '<div class="kitchen-priority">🍽️ KITCHEN ORDER</div>';
-      case RECEIPT_TYPES.GIFT:
-        return '<div class="gift-notice">🎁 GIFT RECEIPT</div>';
-      case RECEIPT_TYPES.REFUND:
-        return '<div class="refund-notice">↩️ REFUND RECEIPT</div>';
-      case RECEIPT_TYPES.REPRINT:
-        return `<div class="reprint-notice">🔄 REPRINTED - ${options.reprintReason || 'Customer Request'}</div>`;
-      default:
-        return '';
-    }
-  };
+  // Enhanced tax and rebate breakdown
+  const taxBreakdown = saleData.taxBreakdown || [];
+  const aggregatedTaxes = saleData.aggregated_taxes || {};
+  const aggregatedRebates = saleData.aggregated_rebates || {};
+  const finalTaxAmount = saleData.tax_amount || saleData.final_tax_amount || 0;
 
-  // Business header information with real data
-  const businessHeader = `
-    <div class="header">
-      <div class="business-name">${business.name}</div>
-      <div class="business-info">${business.address1}</div>
-      <div class="business-info">${business.address2}</div>
-      <div class="business-info">Phone: ${business.phone}</div>
-      <div class="business-info">Email: ${business.email}</div>
-      <div class="business-info">${business.tax_number}</div>
-    </div>
-  `;
+  // Use detailed breakdown if available, otherwise use aggregated data
+  let taxes = [];
+  let rebates = [];
 
-  // Receipt information section
-  const receiptInfo = `
-    <div class="receipt-info">
-      <div><strong>Receipt #:</strong> ${saleData.sale_number || receiptId}</div>
-      <div><strong>Date:</strong> ${new Date(saleData.created_at || Date.now()).toLocaleString()}</div>
-      ${saleData.employee_name ? `<div><strong>Cashier:</strong> ${saleData.employee_name}</div>` : ''}
-      ${saleData.terminal_id ? `<div><strong>Terminal:</strong> ${saleData.terminal_id}</div>` : ''}
-      ${saleData.customer_name ? `<div><strong>Customer:</strong> ${saleData.customer_name}</div>` : ''}
-      ${receiptType === RECEIPT_TYPES.REPRINT ? `<div><strong>Reprinted:</strong> ${timestamp}</div>` : ''}
-    </div>
-  `;
+  if (taxBreakdown && taxBreakdown.length > 0) {
+    taxes = taxBreakdown.filter(item => item.type === 'tax');
+    rebates = taxBreakdown.filter(item => item.type === 'rebate');
+  } else {
+    // Convert aggregated data to breakdown format
+    taxes = Object.entries(aggregatedTaxes).map(([name, amount]) => ({ name, amount }));
+    rebates = Object.entries(aggregatedRebates).map(([name, amount]) => ({ name, amount }));
+  }
 
-  // Items section with proper modifier handling
-  const itemsSection = () => {
-    if (!saleData.items || saleData.items.length === 0) {
-      return '<div class="items-section"><div>No items found</div></div>';
-    }
+  // Customer information
+  const customer = saleData.loyaltyCustomer;
 
-    let itemsHTML = '<div class="items-section">';
-    
-    saleData.items.forEach(item => {
-      const itemTotal = (item.price || 0) * (item.quantity || 1);
-      
-      // Main item line - for gift receipts, don't show prices
-      if (receiptType === RECEIPT_TYPES.GIFT) {
-        itemsHTML += `
-          <div class="item">
-            <div class="item-name">
-              ${item.quantity}x ${item.name}
-              ${receiptType === RECEIPT_TYPES.KITCHEN && item.station_id ? ` → ${item.station_id}` : ''}
-            </div>
-            <div class="item-price">GIFT</div>
-          </div>
-        `;
-      } else {
-        itemsHTML += `
-          <div class="item">
-            <div class="item-name">
-              ${item.quantity}x ${item.name}
-              ${receiptType === RECEIPT_TYPES.KITCHEN && item.station_id ? ` → ${item.station_id}` : ''}
-            </div>
-            <div class="item-price">$${itemTotal.toFixed(2)}</div>
-          </div>
-        `;
-      }
+  // GIFT RECEIPT - Special handling
+  if (isGiftReceipt) {
+    // Gift receipt shows only items without any pricing
+    const giftItemsHTML = items.map(item => {
+      let itemHTML = `
+        <div class="gift-item">
+          <div class="gift-item-name">${item.name}</div>
+          <div class="gift-item-qty">Quantity: ${item.quantity || 1}</div>
+          ${item.sku ? `<div class="gift-item-sku">SKU: ${item.sku}</div>` : ''}
+      `;
 
-      // Modifiers (if any) - show for gift receipts but without prices
+      // Add modifiers without pricing
       if (item.modifiers && item.modifiers.length > 0) {
-        item.modifiers.forEach(modifier => {
-          const modPrice = Number(modifier.price) || 0;
-          if (receiptType === RECEIPT_TYPES.GIFT) {
-            itemsHTML += `
-              <div class="modifier">
-                ${modifier.required ? '• ' : '+ '}${modifier.name}
-              </div>
-            `;
-          } else {
-            itemsHTML += `
-              <div class="modifier">
-                ${modifier.required ? '• ' : '+ '}${modifier.name}
-                ${modPrice > 0 ? ` (+$${modPrice.toFixed(2)})` : ' (Free)'}
-              </div>
-            `;
-          }
+        item.modifiers.forEach(mod => {
+          itemHTML += `<div class="gift-modifier">+ ${mod.name}</div>`;
         });
       }
 
-      // Item notes
-      if (item.notes) {
-        itemsHTML += `<div class="modifier">Note: ${item.notes}</div>`;
-      }
-    });
+      itemHTML += '</div>';
+      return itemHTML;
+    }).join('');
 
-    itemsHTML += '</div>';
-    return itemsHTML;
-  };
-
-  // Totals section with dynamic tax calculation
-  const totalsSection = () => {
-    // Don't show totals on gift receipts
-    if (receiptType === RECEIPT_TYPES.GIFT) {
-      return '';
-    }
-
-    const subtotal = saleData.subtotal || 0;
-    const discountAmount = saleData.discount_amount || 0;
-    const loyaltyRedemption = saleData.loyalty_redemption || 0;
-    const taxAmount = saleData.tax_amount || 0;
-    const tipAmount = saleData.tip_amount || 0;
-    const finalTotal = saleData.final_total || saleData.total_amount || 0;
-
-    let totalsHTML = '<div class="totals-section">';
-    
-    // Subtotal
-    totalsHTML += `
-      <div class="total-row">
-        <span>Subtotal:</span>
-        <span>$${subtotal.toFixed(2)}</span>
-      </div>
-    `;
-
-    // Discounts
-    if (discountAmount > 0) {
-      totalsHTML += `
-        <div class="total-row">
-          <span>Discount:</span>
-          <span>-$${discountAmount.toFixed(2)}</span>
-        </div>
-      `;
-    }
-
-    // Loyalty redemption
-    if (loyaltyRedemption > 0) {
-      totalsHTML += `
-        <div class="total-row">
-          <span>Loyalty Credit:</span>
-          <span>-$${loyaltyRedemption.toFixed(2)}</span>
-        </div>
-      `;
-    }
-
-    // Tax
-    if (taxAmount > 0) {
-      const taxRate = businessSettings.tax_rate || 0.13;
-      totalsHTML += `
-        <div class="total-row">
-          <span>Tax (${(taxRate * 100).toFixed(1)}%):</span>
-          <span>$${taxAmount.toFixed(2)}</span>
-        </div>
-      `;
-    }
-
-    // Tip
-    if (tipAmount > 0) {
-      totalsHTML += `
-        <div class="total-row">
-          <span>Tip:</span>
-          <span>$${tipAmount.toFixed(2)}</span>
-        </div>
-      `;
-    }
-
-    // Final total
-    totalsHTML += `
-      <div class="total-row total-final">
-        <span>TOTAL:</span>
-        <span>$${finalTotal.toFixed(2)}</span>
-      </div>
-    `;
-
-    totalsHTML += '</div>';
-    return totalsHTML;
-  };
-
-  // Payment section (not shown on gift receipts or kitchen receipts)
-  const paymentSection = () => {
-    if (receiptType === RECEIPT_TYPES.GIFT || receiptType === RECEIPT_TYPES.KITCHEN) {
-      return '';
-    }
-
-    if (!saleData.payments || saleData.payments.length === 0) {
-      return '<div class="payment-section"><div>Payment information not available</div></div>';
-    }
-
-    let paymentHTML = '<div class="payment-section">';
-    
-    saleData.payments.forEach(payment => {
-      const methodName = payment.custom_method_name || payment.method;
-      paymentHTML += `
-        <div class="payment-row">
-          <span>${methodName.charAt(0).toUpperCase() + methodName.slice(1)}:</span>
-          <span>$${Number(payment.amount).toFixed(2)}</span>
-        </div>
-      `;
-    });
-
-    // Change given
-    if (saleData.change_given > 0) {
-      paymentHTML += `
-        <div class="payment-row">
-          <span><strong>Change:</strong></span>
-          <span><strong>$${saleData.change_given.toFixed(2)}</strong></span>
-        </div>
-      `;
-    }
-
-    paymentHTML += '</div>';
-    return paymentHTML;
-  };
-
-  // QR Code section (for receipt lookup and refunds) - FIXED
-  const qrSection = () => {
-    if (receiptType === RECEIPT_TYPES.KITCHEN) {
-      return ''; // No QR needed for kitchen receipts
-    }
-
-    const qrCode = generateSimpleQR(qrData);
-    
     return `
-      <div class="qr-code">
-        <div class="qr-label">Scan for receipt lookup:</div>
-        ${qrCode}
-        <div style="font-size: 8px; margin-top: 5px;">
-          Receipt ID: ${saleData.sale_number}
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Gift Receipt - ${saleNumber}</title>
+        <style>
+          ${getGiftReceiptStyles()}
+        </style>
+      </head>
+      <body>
+        <div class="gift-receipt-container">
+          <!-- Business Header -->
+          <div class="business-header">
+            <h1>${businessName}</h1>
+            <div class="business-address">
+              ${businessAddress}<br>
+              ${businessCity}, ${businessState} ${businessPostal}<br>
+              ${businessPhone}<br>
+              ${businessEmail}
+            </div>
+          </div>
+
+          <!-- Gift Receipt Header -->
+          <div class="gift-header">
+            <h2>GIFT RECEIPT</h2>
+            <div class="gift-info">
+              <div>Receipt #${saleNumber}</div>
+              <div>${saleDate}</div>
+            </div>
+          </div>
+
+          <!-- Items Only -->
+          <div class="gift-items-section">
+            <div class="section-header">Items</div>
+            ${giftItemsHTML}
+          </div>
+
+          <!-- Gift Receipt Footer -->
+          <div class="gift-footer">
+            <div class="gift-message">
+              This gift receipt can be used for returns or exchanges.
+            </div>
+            <div class="gift-policy">
+              Returns accepted within 30 days of purchase date.<br>
+              Original receipt may be required for some returns.
+            </div>
+            <div class="gift-contact">
+              Questions? Contact us at ${businessPhone}
+            </div>
+          </div>
         </div>
-      </div>
+      </body>
+      </html>
     `;
-  };
-
-  // Footer with business information and policies
-  const footerSection = () => {
-    let footerHTML = '<div class="footer">';
-    
-    // Custom business footer
-    if (businessSettings.receipt_footer) {
-      footerHTML += `<div style="margin-bottom: 10px;">${businessSettings.receipt_footer}</div>`;
-    }
-
-    // Default footer messages
-    if (receiptType === RECEIPT_TYPES.STANDARD) {
-      footerHTML += `
-        <div style="margin-bottom: 10px;">
-          Thank you for your business!<br>
-          Returns accepted within 30 days with receipt<br>
-          Questions? Email: ${business.email}
-        </div>
-      `;
-    }
-
-    // Gift receipt specific footer
-    if (receiptType === RECEIPT_TYPES.GIFT) {
-      footerHTML += `
-        <div style="margin-bottom: 10px;">
-          Gift Receipt - No prices shown<br>
-          Valid for returns with original receipt<br>
-          Contact: ${business.phone}
-        </div>
-      `;
-    }
-
-    // Refund specific footer
-    if (receiptType === RECEIPT_TYPES.REFUND) {
-      footerHTML += `
-        <div style="margin-bottom: 10px;">
-          Refund processed: ${timestamp}<br>
-          ${options.refundReason ? `Reason: ${options.refundReason}` : ''}
-        </div>
-      `;
-    }
-
-    // Loyalty program info (if customer attached)
-    if (saleData.loyalty_customer_id && receiptType !== RECEIPT_TYPES.KITCHEN && receiptType !== RECEIPT_TYPES.GIFT) {
-      const earnedAmount = (saleData.subtotal || 0) * (businessSettings.redemption_rate || 0.01);
-      footerHTML += `
-        <div style="margin-bottom: 10px;">
-          Loyalty earned: $${earnedAmount.toFixed(2)}<br>
-          Thank you for being a loyal customer!
-        </div>
-      `;
-    }
-
-    // Powered by Tavari
-    footerHTML += `
-      <div style="margin-top: 15px; font-size: 9px; color: #666;">
-        ${business.website}<br>
-        Powered by Tavari POS
-      </div>
-    `;
-
-    footerHTML += '</div>';
-    return footerHTML;
-  };
-
-  // Signature lines for refunds and manager overrides
-  const signatureSection = () => {
-    if (receiptType === RECEIPT_TYPES.REFUND || options.requiresSignature) {
-      return `
-        <div class="signature-line">
-          Employee: ___________________ Date: ___________
-        </div>
-        <div class="signature-line">
-          Customer: __________________ Date: ___________
-        </div>
-        ${options.managerOverride ? `
-        <div class="signature-line">
-          Manager: ___________________ Date: ___________
-        </div>
-        ` : ''}
-      `;
-    }
-    return '';
-  };
-
-  // Assemble the complete receipt
-  const receiptHTML = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>Receipt - ${saleData.sale_number || receiptId}</title>
-      ${styles}
-    </head>
-    <body>
-      <div class="receipt">
-        ${getReceiptNotice()}
-        ${businessHeader}
-        <div class="receipt-title">${getReceiptTitle(receiptType)}</div>
-        ${receiptInfo}
-        ${itemsSection()}
-        ${totalsSection()}
-        ${paymentSection()}
-        ${qrSection()}
-        ${footerSection()}
-        ${signatureSection()}
-      </div>
-    </body>
-    </html>
-  `;
-
-  return receiptHTML;
-}
-
-/**
- * Get receipt title based on type
- */
-function getReceiptTitle(receiptType) {
-  switch (receiptType) {
-    case RECEIPT_TYPES.GIFT:
-      return 'GIFT RECEIPT';
-    case RECEIPT_TYPES.KITCHEN:
-      return 'KITCHEN ORDER';
-    case RECEIPT_TYPES.REFUND:
-      return 'REFUND RECEIPT';
-    case RECEIPT_TYPES.REPRINT:
-      return 'RECEIPT (REPRINTED)';
-    case RECEIPT_TYPES.EMAIL:
-      return 'EMAIL RECEIPT';
-    default:
-      return 'RECEIPT';
   }
-}
 
-/**
- * Generate receipt for email delivery (simplified HTML)
- */
-export function generateEmailReceiptHTML(saleData, businessSettings = {}) {
-  const business = getBusinessInfo(businessSettings);
-  
-  const emailStyles = `
-    <style>
-      .email-receipt {
-        font-family: Arial, sans-serif;
-        max-width: 600px;
-        margin: 0 auto;
-        padding: 20px;
-        background: #f9f9f9;
-        color: #333;
-      }
-      .receipt-content {
-        background: white;
-        padding: 30px;
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      }
-      .business-header {
-        text-align: center;
-        border-bottom: 2px solid #008080;
-        padding-bottom: 20px;
-        margin-bottom: 30px;
-      }
-      .business-name {
-        font-size: 24px;
-        font-weight: bold;
-        color: #008080;
-        margin-bottom: 10px;
-      }
-      .item-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 20px;
-      }
-      .item-table th,
-      .item-table td {
-        padding: 10px;
-        text-align: left;
-        border-bottom: 1px solid #eee;
-      }
-      .item-table th {
-        background: #f8f9fa;
-        font-weight: bold;
-      }
-      .totals-table {
-        width: 100%;
-        margin-top: 20px;
-      }
-      .totals-table td {
-        padding: 5px 0;
-      }
-      .total-final {
-        font-size: 18px;
-        font-weight: bold;
-        border-top: 2px solid #008080;
-        padding-top: 10px;
-      }
-    </style>
-  `;
+  // Generate items HTML for standard receipts
+  const itemsHTML = items.map(item => {
+    const itemTotal = (item.price || 0) * (item.quantity || 1);
+    let itemHTML = `
+      <div class="receipt-item">
+        <div class="item-line">
+          <span class="item-name">${item.name}</span>
+          <span class="item-total">${formatCurrency(itemTotal)}</span>
+        </div>
+        <div class="item-details">
+          ${formatCurrency(item.price || 0)} × ${item.quantity || 1}
+          ${item.sku ? ` (SKU: ${item.sku})` : ''}
+        </div>
+    `;
 
+    // Add modifiers if present
+    if (item.modifiers && item.modifiers.length > 0) {
+      item.modifiers.forEach(mod => {
+        itemHTML += `
+          <div class="item-modifier">
+            + ${mod.name} ${formatCurrency(mod.price)}
+          </div>
+        `;
+      });
+    }
+
+    // Add item-level rebates if present
+    if (item.rebateDetails && Object.keys(item.rebateDetails).length > 0) {
+      Object.entries(item.rebateDetails).forEach(([rebateName, rebateData]) => {
+        itemHTML += `
+          <div class="item-rebate">
+            🎯 ${rebateName}: -${formatCurrency(rebateData.amount)}
+          </div>
+        `;
+      });
+    }
+
+    itemHTML += '</div>';
+    return itemHTML;
+  }).join('');
+
+  // Generate tax breakdown HTML
+  const taxBreakdownHTML = taxes.length > 0 ? `
+    <div class="tax-section">
+      <div class="section-header">Taxes Applied</div>
+      ${taxes.map(tax => `
+        <div class="tax-line">
+          <span>${tax.name}${tax.rate ? ` (${(tax.rate * 100).toFixed(2)}%)` : ''}</span>
+          <span>${formatCurrency(tax.amount)}</span>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  // Generate rebate breakdown HTML
+  const rebateBreakdownHTML = rebates.length > 0 ? `
+    <div class="rebate-section">
+      <div class="section-header">Rebates Applied</div>
+      ${rebates.map(rebate => `
+        <div class="rebate-line">
+          <span>${rebate.name}${rebate.rate ? ` (${(rebate.rate * 100).toFixed(2)}%)` : ''}</span>
+          <span>-${formatCurrency(rebate.amount)}</span>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  // Generate payment methods HTML with cash rounding
+  const paymentsHTML = payments.map(payment => {
+    const isCashPayment = (payment.method || payment.payment_method) === 'cash';
+    const originalAmount = payment.amount;
+    const displayAmount = isCashPayment ? roundToCashNickel(originalAmount) : originalAmount;
+    const cashRoundingAdjustment = isCashPayment ? displayAmount - originalAmount : 0;
+    
+    let paymentHTML = `
+      <div class="payment-line">
+        <span>${payment.custom_method_name || payment.method || payment.payment_method}</span>
+        <span>${formatCurrency(displayAmount)}</span>
+      </div>
+    `;
+
+    // Show cash rounding adjustment if applicable
+    if (isCashPayment && Math.abs(cashRoundingAdjustment) >= 0.01) {
+      paymentHTML += `
+        <div class="cash-rounding-line">
+          <span>Cash Rounding Adjustment</span>
+          <span>${cashRoundingAdjustment >= 0 ? '+' : ''}${formatCurrency(Math.abs(cashRoundingAdjustment))}</span>
+        </div>
+      `;
+    }
+
+    return paymentHTML;
+  }).join('');
+
+  // Add loyalty redemption to payments if used
+  const loyaltyPaymentHTML = loyaltyRedemption > 0 ? `
+    <div class="payment-line">
+      <span>${businessSettings.loyalty_mode === 'points' ? 'Loyalty Points' : 'Loyalty Credit'}</span>
+      <span>${businessSettings.loyalty_mode === 'points' 
+        ? `-${Math.round(loyaltyRedemption * 1000).toLocaleString()} pts`
+        : `-${formatCurrency(loyaltyRedemption)}`
+      }</span>
+    </div>
+  ` : '';
+
+  // Change given with cash rounding
+  const changeHTML = changeGiven > 0 ? `
+    <div class="change-line">
+      <span>Change Given</span>
+      <span>${formatCurrency(changeGiven, true)}</span>
+    </div>
+  ` : '';
+
+  // Customer loyalty info
+  const loyaltyInfoHTML = customer ? `
+    <div class="loyalty-section">
+      <div class="section-header">Customer: ${customer.customer_name}</div>
+      ${customer.customer_email ? `<div class="customer-detail">📧 ${customer.customer_email}</div>` : ''}
+      ${customer.customer_phone ? `<div class="customer-detail">📞 ${customer.customer_phone}</div>` : ''}
+      <div class="loyalty-earned">
+        ${businessSettings.loyalty_mode === 'points' 
+          ? `🏆 Points Earned: ${Math.round((subtotal * (businessSettings.earn_rate_percentage || 3) / 100) * 1000).toLocaleString()}`
+          : `💰 Earned: ${formatCurrency(subtotal * (businessSettings.earn_rate_percentage || 3) / 100)}`
+        }
+      </div>
+      <div class="loyalty-balance">
+        ${businessSettings.loyalty_mode === 'points' 
+          ? `💳 Balance: ${Math.round((customer.balance || 0) * 1000).toLocaleString()} points`
+          : `💳 Balance: ${formatCurrency(customer.balance || 0)}`
+        }
+      </div>
+    </div>
+  ` : '';
+
+  // Kitchen receipt has different content
+  if (isKitchenReceipt) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Kitchen Receipt - ${saleNumber}</title>
+        <style>
+          ${getReceiptStyles(true)}
+        </style>
+      </head>
+      <body>
+        <div class="receipt-container">
+          <div class="kitchen-header">
+            <h1>🍽️ KITCHEN ORDER</h1>
+            <div class="order-info">
+              <div>Order #${saleNumber}</div>
+              <div>${saleDate}</div>
+              ${customer ? `<div>Customer: ${customer.customer_name}</div>` : ''}
+            </div>
+          </div>
+          
+          <div class="kitchen-items">
+            ${items.filter(item => item.station_id || !item.station_id).map(item => `
+              <div class="kitchen-item">
+                <div class="item-qty-name">
+                  <span class="quantity">${item.quantity || 1}×</span>
+                  <span class="name">${item.name}</span>
+                </div>
+                ${item.modifiers && item.modifiers.length > 0 ? `
+                  <div class="modifiers">
+                    ${item.modifiers.map(mod => `<div>+ ${mod.name}</div>`).join('')}
+                  </div>
+                ` : ''}
+                ${item.notes ? `<div class="item-notes">NOTE: ${item.notes}</div>` : ''}
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="kitchen-footer">
+            <div>Items: ${items.reduce((sum, item) => sum + (item.quantity || 1), 0)}</div>
+            <div>Printed: ${new Date().toLocaleString('en-CA')}</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Standard receipt HTML
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8">
-      <title>Your Receipt - ${saleData.sale_number}</title>
-      ${emailStyles}
+      <title>${isReprint ? 'REPRINT - ' : ''}Receipt - ${saleNumber}</title>
+      <style>
+        ${getReceiptStyles()}
+      </style>
     </head>
     <body>
-      <div class="email-receipt">
-        <div class="receipt-content">
-          <div class="business-header">
-            <div class="business-name">${business.name}</div>
-            <div>${business.address1}</div>
-            <div>${business.address2}</div>
-            <div>Phone: ${business.phone}</div>
-            <div>Email: ${business.email}</div>
-            <br>
-            <div>Receipt #: ${saleData.sale_number}</div>
-            <div>Date: ${new Date(saleData.created_at || Date.now()).toLocaleString()}</div>
+      <div class="receipt-container">
+        <!-- Business Header -->
+        <div class="business-header">
+          <h1>${businessName}</h1>
+          <div class="business-address">
+            ${businessAddress}<br>
+            ${businessCity}, ${businessState} ${businessPostal}<br>
+            📞 ${businessPhone}<br>
+            📧 ${businessEmail}
           </div>
-          
-          <table class="item-table">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${saleData.items?.map(item => `
-                <tr>
-                  <td>${item.name}</td>
-                  <td>${item.quantity}</td>
-                  <td>$${Number(item.price).toFixed(2)}</td>
-                  <td>$${(Number(item.price) * Number(item.quantity)).toFixed(2)}</td>
-                </tr>
-              `).join('') || '<tr><td colspan="4">No items</td></tr>'}
-            </tbody>
-          </table>
-          
-          <table class="totals-table">
-            <tr>
-              <td>Subtotal:</td>
-              <td style="text-align: right;">$${(saleData.subtotal || 0).toFixed(2)}</td>
-            </tr>
-            <tr>
-              <td>Tax:</td>
-              <td style="text-align: right;">$${(saleData.tax_amount || 0).toFixed(2)}</td>
-            </tr>
-            <tr class="total-final">
-              <td>Total:</td>
-              <td style="text-align: right;">$${(saleData.final_total || saleData.total_amount || 0).toFixed(2)}</td>
-            </tr>
-          </table>
-          
-          <div style="margin-top: 30px; text-align: center; color: #666;">
-            Thank you for your business!<br>
-            ${business.website}<br>
-            ${businessSettings.receipt_footer || ''}
+          ${taxNumber ? `<div class="tax-number">${taxNumber}</div>` : ''}
+        </div>
+
+        <!-- Sale Information -->
+        <div class="sale-info">
+          ${isReprint ? '<div class="reprint-notice">*** REPRINT ***</div>' : ''}
+          <div class="sale-details">
+            <div>Receipt #${saleNumber}</div>
+            <div>${saleDate}</div>
+            ${options.reprintReason ? `<div>Reason: ${options.reprintReason}</div>` : ''}
+          </div>
+        </div>
+
+        <!-- Items Section -->
+        <div class="items-section">
+          <div class="section-header">Items Purchased</div>
+          ${itemsHTML}
+        </div>
+
+        <!-- Financial Breakdown -->
+        <div class="financial-section">
+          <!-- Subtotal -->
+          <div class="total-line subtotal-line">
+            <span>Subtotal</span>
+            <span>${formatCurrency(subtotal)}</span>
+          </div>
+
+          <!-- Discounts -->
+          ${discountAmount > 0 ? `
+            <div class="total-line discount-line">
+              <span>Discount</span>
+              <span>-${formatCurrency(discountAmount)}</span>
+            </div>
+          ` : ''}
+
+          <!-- Loyalty Redemption -->
+          ${loyaltyRedemption > 0 ? `
+            <div class="total-line loyalty-line">
+              <span>Loyalty Credit</span>
+              <span>-${formatCurrency(loyaltyRedemption)}</span>
+            </div>
+          ` : ''}
+
+          <!-- Tax Breakdown -->
+          ${taxBreakdownHTML}
+
+          <!-- Rebate Breakdown -->
+          ${rebateBreakdownHTML}
+
+          <!-- Net Tax Total -->
+          <div class="total-line tax-total-line">
+            <span>Total Tax</span>
+            <span>${formatCurrency(finalTaxAmount)}</span>
+          </div>
+
+          <!-- Tip -->
+          ${tipAmount > 0 ? `
+            <div class="total-line">
+              <span>Tip</span>
+              <span>${formatCurrency(tipAmount)}</span>
+            </div>
+          ` : ''}
+
+          <!-- Final Total -->
+          <div class="total-line final-total-line">
+            <span>TOTAL</span>
+            <span>${formatCurrency(finalTotal)}</span>
+          </div>
+        </div>
+
+        <!-- Payment Methods -->
+        <div class="payment-section">
+          <div class="section-header">Payment Methods</div>
+          ${paymentsHTML}
+          ${loyaltyPaymentHTML}
+          ${changeHTML}
+        </div>
+
+        <!-- Customer Information -->
+        ${loyaltyInfoHTML}
+
+        <!-- Footer -->
+        <div class="receipt-footer">
+          <div class="thank-you">Thank you for your business!</div>
+          <div class="return-policy">
+            Returns accepted within 30 days with receipt.
+          </div>
+          <div class="qr-section">
+            <div>Scan for digital receipt:</div>
+            <div class="qr-placeholder">[QR Code: ${saleNumber}]</div>
           </div>
         </div>
       </div>
     </body>
     </html>
   `;
-}
+};
 
-/**
- * Print receipt helper
- */
-export function printReceipt(receiptHTML) {
-  const printWindow = window.open('', '_blank');
-  printWindow.document.write(receiptHTML);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.print();
-  printWindow.close();
-}
+export const generateEmailReceiptHTML = (saleData, businessSettings = {}) => {
+  // Use the standard receipt generator with email styling
+  const standardHTML = generateReceiptHTML(saleData, RECEIPT_TYPES.EMAIL, businessSettings);
+  
+  // Add email-specific wrapper and styling
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Your Receipt from ${businessSettings.business_name || 'Business'}</title>
+      <style>
+        body { 
+          font-family: Arial, sans-serif; 
+          margin: 0; 
+          padding: 20px; 
+          background-color: #f5f5f5; 
+        }
+        .email-wrapper { 
+          max-width: 600px; 
+          margin: 0 auto; 
+          background: white; 
+          border-radius: 8px; 
+          overflow: hidden; 
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+        .email-header { 
+          background: #008080; 
+          color: white; 
+          padding: 20px; 
+          text-align: center; 
+        }
+        .email-content { 
+          padding: 20px; 
+        }
+        ${getReceiptStyles()}
+      </style>
+    </head>
+    <body>
+      <div class="email-wrapper">
+        <div class="email-header">
+          <h1>📧 Digital Receipt</h1>
+          <p>Thank you for your purchase!</p>
+        </div>
+        <div class="email-content">
+          ${standardHTML.replace(/.*<body[^>]*>|<\/body>.*/g, '').replace(/<div class="receipt-container">|<\/div>$/g, '')}
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
 
-/**
- * Generate QR code data for receipt lookup
- */
-export function generateReceiptQRData(saleData) {
-  return JSON.stringify({
-    type: 'receipt_lookup',
-    sale_id: saleData.sale_id,
-    sale_number: saleData.sale_number,
-    business_id: saleData.business_id,
-    total: saleData.final_total || saleData.total_amount,
-    created_at: saleData.created_at
-  });
-}
+export const printReceipt = (receiptHTML) => {
+  const printWindow = window.open('', '_blank', 'width=400,height=600');
+  if (printWindow) {
+    printWindow.document.write(receiptHTML);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Auto-print after a short delay
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
+  } else {
+    alert('Please allow popups to print receipts');
+  }
+};
+
+// Gift receipt specific styles
+const getGiftReceiptStyles = () => {
+  return `
+    body {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      margin: 0;
+      padding: 10px;
+      background: white;
+      color: #000;
+    }
+    .gift-receipt-container {
+      max-width: 350px;
+      margin: 0 auto;
+    }
+    .business-header {
+      text-align: center;
+      margin-bottom: 20px;
+      border-bottom: 2px solid #000;
+      padding-bottom: 10px;
+    }
+    .business-header h1 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .business-address {
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    .gift-header {
+      text-align: center;
+      margin-bottom: 20px;
+      border: 2px solid #000;
+      padding: 10px;
+    }
+    .gift-header h2 {
+      margin: 0 0 10px 0;
+      font-size: 18px;
+      font-weight: bold;
+      letter-spacing: 2px;
+    }
+    .gift-info {
+      font-size: 11px;
+    }
+    .section-header {
+      font-weight: bold;
+      text-align: center;
+      margin: 15px 0 10px 0;
+      padding: 5px 0;
+      border-top: 1px solid #000;
+      border-bottom: 1px solid #000;
+    }
+    .gift-items-section {
+      margin: 20px 0;
+    }
+    .gift-item {
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed #ccc;
+    }
+    .gift-item-name {
+      font-weight: bold;
+      font-size: 14px;
+      margin-bottom: 5px;
+    }
+    .gift-item-qty {
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+    .gift-item-sku {
+      font-size: 10px;
+      color: #666;
+      font-style: italic;
+    }
+    .gift-modifier {
+      font-size: 10px;
+      margin-left: 15px;
+      font-style: italic;
+      color: #555;
+    }
+    .gift-footer {
+      margin-top: 30px;
+      border-top: 2px solid #000;
+      padding-top: 15px;
+      text-align: center;
+    }
+    .gift-message {
+      font-weight: bold;
+      font-size: 14px;
+      margin-bottom: 15px;
+    }
+    .gift-policy {
+      font-size: 11px;
+      line-height: 1.4;
+      margin-bottom: 15px;
+      padding: 10px;
+      border: 1px dashed #000;
+      background: #f9f9f9;
+    }
+    .gift-contact {
+      font-size: 10px;
+      font-style: italic;
+    }
+    @media print {
+      body { 
+        margin: 0; 
+        padding: 5px; 
+      }
+      .gift-receipt-container { 
+        max-width: none; 
+      }
+    }
+  `;
+};
+
+// Receipt styles for standard and kitchen receipts
+const getReceiptStyles = (isKitchen = false) => {
+  if (isKitchen) {
+    return `
+      body {
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.3;
+        margin: 0;
+        padding: 10px;
+        background: white;
+      }
+      .receipt-container {
+        max-width: 400px;
+        margin: 0 auto;
+      }
+      .kitchen-header {
+        text-align: center;
+        border-bottom: 2px solid #000;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+      }
+      .kitchen-header h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: bold;
+      }
+      .order-info {
+        margin-top: 10px;
+        font-weight: bold;
+      }
+      .kitchen-items {
+        margin: 15px 0;
+      }
+      .kitchen-item {
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 1px dashed #ccc;
+      }
+      .item-qty-name {
+        font-weight: bold;
+        font-size: 16px;
+      }
+      .quantity {
+        font-size: 18px;
+        margin-right: 10px;
+      }
+      .modifiers {
+        margin-left: 20px;
+        font-style: italic;
+      }
+      .item-notes {
+        margin-top: 5px;
+        padding: 5px;
+        background: #f0f0f0;
+        border: 1px solid #ddd;
+        font-weight: bold;
+      }
+      .kitchen-footer {
+        text-align: center;
+        margin-top: 20px;
+        border-top: 2px solid #000;
+        padding-top: 10px;
+      }
+    `;
+  }
+
+  return `
+    body {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      margin: 0;
+      padding: 10px;
+      background: white;
+      color: #000;
+    }
+    .receipt-container {
+      max-width: 350px;
+      margin: 0 auto;
+    }
+    .business-header {
+      text-align: center;
+      margin-bottom: 20px;
+      border-bottom: 2px solid #000;
+      padding-bottom: 10px;
+    }
+    .business-header h1 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .business-address {
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    .tax-number {
+      font-size: 10px;
+      margin-top: 5px;
+      font-style: italic;
+    }
+    .sale-info {
+      text-align: center;
+      margin-bottom: 15px;
+    }
+    .reprint-notice {
+      font-weight: bold;
+      font-size: 14px;
+      margin-bottom: 5px;
+    }
+    .sale-details {
+      font-size: 11px;
+    }
+    .section-header {
+      font-weight: bold;
+      text-align: center;
+      margin: 15px 0 10px 0;
+      padding: 5px 0;
+      border-top: 1px solid #000;
+      border-bottom: 1px solid #000;
+    }
+    .receipt-item {
+      margin-bottom: 10px;
+    }
+    .item-line {
+      display: flex;
+      justify-content: space-between;
+      font-weight: bold;
+    }
+    .item-details {
+      font-size: 10px;
+      color: #666;
+      margin-top: 2px;
+    }
+    .item-modifier {
+      font-size: 10px;
+      margin-left: 15px;
+      font-style: italic;
+    }
+    .item-rebate {
+      font-size: 10px;
+      margin-left: 15px;
+      color: #008000;
+      font-weight: bold;
+    }
+    .financial-section {
+      margin: 15px 0;
+      border-top: 1px solid #000;
+      padding-top: 10px;
+    }
+    .total-line {
+      display: flex;
+      justify-content: space-between;
+      margin: 3px 0;
+    }
+    .subtotal-line {
+      font-weight: bold;
+    }
+    .discount-line {
+      color: #d00;
+    }
+    .loyalty-line {
+      color: #008000;
+      font-weight: bold;
+    }
+    .tax-total-line {
+      font-weight: bold;
+      border-top: 1px dashed #000;
+      padding-top: 3px;
+    }
+    .final-total-line {
+      font-weight: bold;
+      font-size: 14px;
+      border-top: 2px solid #000;
+      border-bottom: 2px solid #000;
+      padding: 5px 0;
+      margin: 10px 0;
+    }
+    .tax-section, .rebate-section {
+      margin: 10px 0;
+      padding: 5px 0;
+      border: 1px dashed #ccc;
+      background: #f9f9f9;
+    }
+    .tax-line, .rebate-line {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      margin: 2px 0;
+      padding: 0 5px;
+    }
+    .rebate-line {
+      color: #008000;
+    }
+    .payment-section {
+      margin: 15px 0;
+    }
+    .payment-line {
+      display: flex;
+      justify-content: space-between;
+      margin: 3px 0;
+    }
+    .cash-rounding-line {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-style: italic;
+      color: #666;
+      margin-left: 15px;
+    }
+    .change-line {
+      display: flex;
+      justify-content: space-between;
+      font-weight: bold;
+      color: #008000;
+      border-top: 1px dashed #000;
+      padding-top: 3px;
+      margin-top: 5px;
+    }
+    .loyalty-section {
+      margin: 15px 0;
+      padding: 10px;
+      border: 1px solid #008080;
+      background: #f0f8f8;
+    }
+    .customer-detail {
+      font-size: 10px;
+      margin: 2px 0;
+    }
+    .loyalty-earned, .loyalty-balance {
+      font-size: 10px;
+      font-weight: bold;
+      margin: 3px 0;
+    }
+    .receipt-footer {
+      text-align: center;
+      margin-top: 20px;
+      border-top: 2px solid #000;
+      padding-top: 10px;
+    }
+    .thank-you {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .return-policy {
+      font-size: 10px;
+      margin: 5px 0;
+    }
+    .qr-section {
+      margin-top: 15px;
+      font-size: 10px;
+    }
+    .qr-placeholder {
+      margin-top: 5px;
+      padding: 10px;
+      border: 1px solid #000;
+      font-family: monospace;
+    }
+    @media print {
+      body { 
+        margin: 0; 
+        padding: 5px; 
+      }
+      .receipt-container { 
+        max-width: none; 
+      }
+    }
+  `;
+};
+
+export default {
+  generateReceiptHTML,
+  generateEmailReceiptHTML,
+  printReceipt,
+  RECEIPT_TYPES
+};

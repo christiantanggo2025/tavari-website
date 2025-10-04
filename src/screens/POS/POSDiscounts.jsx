@@ -1,23 +1,40 @@
 // src/screens/POS/POSDiscounts.jsx
-// Step 114: Complete discount management with auto-apply, manager approval, and date validation
+// Updated with properly working standardized components
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
-import { useBusiness } from '../../contexts/BusinessContext';
 import { logAction } from '../../helpers/posAudit';
+import { TavariStyles } from '../../utils/TavariStyles';
+import POSAuthWrapper from '../../components/Auth/POSAuthWrapper';
+import TavariCheckbox from '../../components/UI/TavariCheckbox';
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
 
-const POSDiscounts = () => {
-  const { business } = useBusiness();
-  const businessId = business?.id;
+const POSDiscountsContent = ({ authState }) => {
+  const { selectedBusinessId, authUser } = authState;
+  
+  // Tax calculations hook for discount validation and preview
+  const {
+    taxCategories,
+    categoryTaxAssignments,
+    categories,
+    calculateItemTax,
+    calculateTotalTax,
+    getItemTaxes,
+    getCategoryTaxes,
+    loading: taxLoading,
+    error: taxError
+  } = useTaxCalculations(selectedBusinessId);
 
   const [discounts, setDiscounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [previewCart, setPreviewCart] = useState([]); // For testing discount calculations
 
   // New discount form
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('percentage');
   const [newValue, setNewValue] = useState('');
-  const [newApplicationType, setNewApplicationType] = useState('transaction'); // 'transaction' or 'item'
+  const [newApplicationType, setNewApplicationType] = useState('transaction');
   const [newAutoApply, setNewAutoApply] = useState(false);
   const [newManagerRequired, setNewManagerRequired] = useState(false);
   const [newValidFrom, setNewValidFrom] = useState('');
@@ -25,6 +42,9 @@ const POSDiscounts = () => {
   const [newMinPurchase, setNewMinPurchase] = useState('');
   const [newMaxUses, setNewMaxUses] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newTaxExempt, setNewTaxExempt] = useState(false);
+  const [newCombineWithOthers, setNewCombineWithOthers] = useState(true);
+  const [newApplyBeforeTax, setNewApplyBeforeTax] = useState(true);
 
   // Edit discount form
   const [editId, setEditId] = useState(null);
@@ -40,19 +60,60 @@ const POSDiscounts = () => {
   const [editMaxUses, setEditMaxUses] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editTaxExempt, setEditTaxExempt] = useState(false);
+  const [editCombineWithOthers, setEditCombineWithOthers] = useState(true);
+  const [editApplyBeforeTax, setEditApplyBeforeTax] = useState(true);
 
   useEffect(() => {
-    if (businessId) fetchDiscounts();
-  }, [businessId]);
+    if (selectedBusinessId) {
+      fetchDiscounts();
+      loadPreviewCart();
+    }
+  }, [selectedBusinessId]);
+
+  // Load sample cart items for discount preview calculations
+  const loadPreviewCart = async () => {
+    try {
+      const { data: products, error } = await supabase
+        .from('pos_products')
+        .select('id, name, price, category_id')
+        .eq('business_id', selectedBusinessId)
+        .eq('is_active', true)
+        .limit(3);
+
+      if (error) throw error;
+
+      const sampleCart = products?.map(product => ({
+        id: product.id,
+        name: product.name,
+        price: Number(product.price),
+        quantity: 1,
+        category_id: product.category_id,
+        modifiers: []
+      })) || [];
+
+      setPreviewCart(sampleCart);
+    } catch (err) {
+      console.error('Error loading preview cart:', err);
+      // Set a fallback sample cart for preview
+      setPreviewCart([
+        { id: 'sample1', name: 'Sample Item 1', price: 10.00, quantity: 1, category_id: null, modifiers: [] },
+        { id: 'sample2', name: 'Sample Item 2', price: 15.50, quantity: 1, category_id: null, modifiers: [] },
+        { id: 'sample3', name: 'Sample Item 3', price: 8.75, quantity: 1, category_id: null, modifiers: [] }
+      ]);
+    }
+  };
 
   const fetchDiscounts = async () => {
+    if (!selectedBusinessId) return;
+
     setLoading(true);
     setError(null);
     try {
       const { data, error } = await supabase
         .from('pos_discounts')
         .select('*')
-        .eq('business_id', businessId)
+        .eq('business_id', selectedBusinessId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -65,10 +126,65 @@ const POSDiscounts = () => {
       });
 
     } catch (err) {
+      console.error('Error fetching discounts:', err);
       setError('Error fetching discounts: ' + err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Calculate discount impact with tax considerations
+  const calculateDiscountPreview = (discount, cartItems = previewCart) => {
+    if (!cartItems?.length) return { subtotal: 0, discountAmount: 0, taxAmount: 0, total: 0 };
+
+    // Calculate subtotal
+    const subtotal = cartItems.reduce((sum, item) => {
+      const basePrice = Number(item.price) || 0;
+      const modifiersTotal = item.modifiers?.reduce((mSum, mod) => {
+        return mSum + (Number(mod.price) || 0);
+      }, 0) || 0;
+      return sum + ((basePrice + modifiersTotal) * (Number(item.quantity) || 1));
+    }, 0);
+
+    // Calculate discount amount
+    let discountAmount = 0;
+    if (discount.type === 'percentage') {
+      discountAmount = subtotal * (Number(discount.value) / 100);
+    } else if (discount.type === 'fixed') {
+      discountAmount = Number(discount.value) || 0;
+    }
+    discountAmount = Math.min(discountAmount, subtotal);
+
+    // Apply discount based on tax rules
+    let taxableAmount = subtotal;
+    if (discount.apply_before_tax) {
+      taxableAmount = subtotal - discountAmount;
+    }
+
+    // Calculate tax on taxable amount using the tax hook
+    let totalTax = 0;
+    if (calculateTotalTax) {
+      const taxResult = calculateTotalTax(cartItems, discount.apply_before_tax ? discountAmount : 0, 0, subtotal);
+      totalTax = taxResult.totalTax;
+    } else {
+      // Fallback to 13% if hook not available
+      totalTax = taxableAmount * 0.13;
+    }
+
+    let finalTotal;
+    if (discount.apply_before_tax) {
+      finalTotal = taxableAmount + totalTax;
+    } else {
+      finalTotal = subtotal + totalTax - discountAmount;
+    }
+
+    return {
+      subtotal: subtotal,
+      discountAmount: discountAmount,
+      taxAmount: totalTax,
+      total: Math.max(0, finalTotal),
+      taxableAmount: taxableAmount
+    };
   };
 
   const validateDiscountForm = (name, type, value, validFrom, validTo, minPurchase) => {
@@ -100,10 +216,15 @@ const POSDiscounts = () => {
       return;
     }
 
+    if (!selectedBusinessId) {
+      setError('No business selected');
+      return;
+    }
+
     setError(null);
     try {
       const discountData = {
-        business_id: businessId,
+        business_id: selectedBusinessId,
         name: newName.trim(),
         type: newType,
         value: parseFloat(newValue),
@@ -117,6 +238,9 @@ const POSDiscounts = () => {
         current_uses: 0,
         description: newDescription.trim() || null,
         is_active: true,
+        tax_exempt: newTaxExempt,
+        combine_with_others: newCombineWithOthers,
+        apply_before_tax: newApplyBeforeTax,
         created_at: new Date().toISOString()
       };
 
@@ -131,7 +255,9 @@ const POSDiscounts = () => {
           type: newType,
           value: parseFloat(newValue),
           auto_apply: newAutoApply,
-          manager_required: newManagerRequired
+          manager_required: newManagerRequired,
+          tax_exempt: newTaxExempt,
+          apply_before_tax: newApplyBeforeTax
         }
       });
 
@@ -147,9 +273,13 @@ const POSDiscounts = () => {
       setNewMinPurchase('');
       setNewMaxUses('');
       setNewDescription('');
+      setNewTaxExempt(false);
+      setNewCombineWithOthers(true);
+      setNewApplyBeforeTax(true);
 
       fetchDiscounts();
     } catch (err) {
+      console.error('Error adding discount:', err);
       setError('Error adding discount: ' + err.message);
     }
   };
@@ -168,6 +298,9 @@ const POSDiscounts = () => {
     setEditMaxUses(discount.max_uses?.toString() || '');
     setEditDescription(discount.description || '');
     setEditIsActive(discount.is_active !== false);
+    setEditTaxExempt(discount.tax_exempt || false);
+    setEditCombineWithOthers(discount.combine_with_others !== false);
+    setEditApplyBeforeTax(discount.apply_before_tax !== false);
   };
 
   const cancelEdit = () => {
@@ -184,6 +317,9 @@ const POSDiscounts = () => {
     setEditMaxUses('');
     setEditDescription('');
     setEditIsActive(true);
+    setEditTaxExempt(false);
+    setEditCombineWithOthers(true);
+    setEditApplyBeforeTax(true);
   };
 
   const saveEdit = async () => {
@@ -211,6 +347,9 @@ const POSDiscounts = () => {
         max_uses: editMaxUses ? parseInt(editMaxUses) : null,
         description: editDescription.trim() || null,
         is_active: editIsActive,
+        tax_exempt: editTaxExempt,
+        combine_with_others: editCombineWithOthers,
+        apply_before_tax: editApplyBeforeTax,
         updated_at: new Date().toISOString()
       };
 
@@ -227,13 +366,16 @@ const POSDiscounts = () => {
         metadata: {
           discount_id: editId,
           discount_name: editName.trim(),
-          is_active: editIsActive
+          is_active: editIsActive,
+          tax_exempt: editTaxExempt,
+          apply_before_tax: editApplyBeforeTax
         }
       });
 
       cancelEdit();
       fetchDiscounts();
     } catch (err) {
+      console.error('Error updating discount:', err);
       setError('Error updating discount: ' + err.message);
     }
   };
@@ -254,6 +396,7 @@ const POSDiscounts = () => {
 
       fetchDiscounts();
     } catch (err) {
+      console.error('Error deleting discount:', err);
       setError('Error deleting discount: ' + err.message);
     }
   };
@@ -286,6 +429,7 @@ const POSDiscounts = () => {
 
       fetchDiscounts();
     } catch (err) {
+      console.error('Error updating discount status:', err);
       setError('Error updating discount status: ' + err.message);
     }
   };
@@ -309,6 +453,16 @@ const POSDiscounts = () => {
       parts.push(`(min $${discount.min_purchase_amount.toFixed(2)})`);
     }
 
+    // Add tax information
+    if (discount.tax_exempt) {
+      parts.push('• Tax exempt');
+    }
+    if (discount.apply_before_tax) {
+      parts.push('• Before tax');
+    } else {
+      parts.push('• After tax');
+    }
+
     return parts.join(' ');
   };
 
@@ -318,18 +472,18 @@ const POSDiscounts = () => {
     const validTo = discount.valid_to ? new Date(discount.valid_to) : null;
 
     if (validFrom && now < validFrom) {
-      return { text: 'Not yet active', color: '#f59e0b', icon: '⏳' };
+      return { text: 'Not yet active', color: TavariStyles.colors.warning, icon: '⏳' };
     }
 
     if (validTo && now > validTo) {
-      return { text: 'Expired', color: '#dc2626', icon: '❌' };
+      return { text: 'Expired', color: TavariStyles.colors.danger, icon: '❌' };
     }
 
     if (validFrom && validTo) {
-      return { text: 'Active', color: '#059669', icon: '✅' };
+      return { text: 'Active', color: TavariStyles.colors.success, icon: '✅' };
     }
 
-    return { text: 'Always active', color: '#059669', icon: '♾️' };
+    return { text: 'Always active', color: TavariStyles.colors.success, icon: '♾️' };
   };
 
   const getUsageStatus = (discount) => {
@@ -338,9 +492,9 @@ const POSDiscounts = () => {
     const remaining = discount.max_uses - (discount.current_uses || 0);
     const percentage = ((discount.current_uses || 0) / discount.max_uses) * 100;
     
-    let color = '#059669';
-    if (percentage > 80) color = '#dc2626';
-    else if (percentage > 60) color = '#f59e0b';
+    let color = TavariStyles.colors.success;
+    if (percentage > 80) color = TavariStyles.colors.danger;
+    else if (percentage > 60) color = TavariStyles.colors.warning;
 
     return {
       text: `${remaining} uses remaining`,
@@ -349,13 +503,387 @@ const POSDiscounts = () => {
     };
   };
 
-  if (!businessId) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.error}>Please select a business to manage discounts.</div>
-      </div>
-    );
-  }
+  // Create styles using TavariStyles
+  const styles = {
+    container: TavariStyles.layout.container,
+    
+    header: {
+      marginBottom: TavariStyles.spacing['2xl'],
+      textAlign: 'center'
+    },
+    
+    errorBanner: {
+      ...TavariStyles.components.banner.base,
+      ...TavariStyles.components.banner.variants.error
+    },
+    
+    loading: TavariStyles.components.loading.container,
+    
+    previewToggle: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.lg,
+      marginBottom: TavariStyles.spacing.xl,
+      backgroundColor: TavariStyles.colors.gray50,
+      border: `1px solid ${TavariStyles.colors.gray200}`
+    },
+    
+    previewContent: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+      gap: TavariStyles.spacing.lg,
+      marginTop: TavariStyles.spacing.lg
+    },
+    
+    previewCard: {
+      padding: TavariStyles.spacing.md,
+      backgroundColor: TavariStyles.colors.white,
+      borderRadius: TavariStyles.borderRadius.md,
+      border: `1px solid ${TavariStyles.colors.gray300}`
+    },
+    
+    addSection: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.xl,
+      marginBottom: TavariStyles.spacing['2xl'],
+      border: `2px solid ${TavariStyles.colors.primary}`
+    },
+    
+    sectionTitle: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.xl,
+      paddingBottom: TavariStyles.spacing.md,
+      borderBottom: `2px solid ${TavariStyles.colors.primary}`
+    },
+    
+    form: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.xl
+    },
+    
+    formRow: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+      gap: TavariStyles.spacing.lg,
+      alignItems: 'end'
+    },
+    
+    formGroup: {
+      display: 'flex',
+      flexDirection: 'column'
+    },
+    
+    label: TavariStyles.components.form.label,
+    input: TavariStyles.components.form.input,
+    select: TavariStyles.components.form.select,
+    
+    textarea: {
+      ...TavariStyles.components.form.input,
+      fontFamily: 'inherit',
+      resize: 'vertical'
+    },
+    
+    checkboxGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+      gap: TavariStyles.spacing.lg,
+      padding: TavariStyles.spacing.lg,
+      backgroundColor: TavariStyles.colors.gray50,
+      borderRadius: TavariStyles.borderRadius.md,
+      border: `1px solid ${TavariStyles.colors.gray200}`
+    },
+    
+    checkboxGroup: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.sm
+    },
+    
+    checkboxGroupTitle: {
+      fontSize: TavariStyles.typography.fontSize.sm,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray700,
+      marginBottom: TavariStyles.spacing.xs
+    },
+    
+    addButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.primary,
+      ...TavariStyles.components.button.sizes.lg,
+      alignSelf: 'flex-start'
+    },
+    
+    tableContainer: TavariStyles.components.table.container,
+    table: TavariStyles.components.table.table,
+    
+    headerRow: {
+      backgroundColor: TavariStyles.colors.primary,
+      color: TavariStyles.colors.white
+    },
+    
+    th: {
+      ...TavariStyles.components.table.th,
+      color: TavariStyles.colors.white,
+      borderBottom: `2px solid ${TavariStyles.colors.primaryDark}`
+    },
+    
+    row: TavariStyles.components.table.row,
+    td: TavariStyles.components.table.td,
+    
+    emptyCell: {
+      padding: TavariStyles.spacing['4xl'],
+      textAlign: 'center',
+      color: TavariStyles.colors.gray500,
+      fontStyle: 'italic'
+    },
+    
+    statusCell: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: TavariStyles.spacing.md
+    },
+    
+    statusIndicator: {
+      width: '12px',
+      height: '12px',
+      borderRadius: TavariStyles.borderRadius.full
+    },
+    
+    statusLabels: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '2px'
+    },
+    
+    statusLabel: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800
+    },
+    
+    dateStatusLabel: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.normal
+    },
+    
+    nameSection: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.xs
+    },
+    
+    discountName: {
+      fontSize: TavariStyles.typography.fontSize.lg,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800
+    },
+    
+    discountDescription: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray500,
+      fontStyle: 'italic'
+    },
+    
+    discountSummary: {
+      fontSize: TavariStyles.typography.fontSize.base,
+      color: TavariStyles.colors.gray700
+    },
+    
+    taxInfo: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.primary,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      marginTop: TavariStyles.spacing.xs
+    },
+    
+    valueDisplay: {
+      textAlign: 'center'
+    },
+    
+    discountValue: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.primary
+    },
+    
+    applicationType: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray500,
+      marginTop: '2px'
+    },
+    
+    editSection: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.sm
+    },
+    
+    smallInput: {
+      ...TavariStyles.components.form.input,
+      padding: TavariStyles.spacing.sm,
+      fontSize: TavariStyles.typography.fontSize.xs
+    },
+    
+    smallSelect: {
+      ...TavariStyles.components.form.select,
+      padding: TavariStyles.spacing.sm,
+      fontSize: TavariStyles.typography.fontSize.xs
+    },
+    
+    smallTextarea: {
+      ...TavariStyles.components.form.input,
+      padding: TavariStyles.spacing.sm,
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontFamily: 'inherit',
+      resize: 'vertical'
+    },
+    
+    rulesDisplay: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.sm
+    },
+    
+    rulesList: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.xs
+    },
+    
+    rule: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray700
+    },
+    
+    usageStatus: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.xs
+    },
+    
+    usageText: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.bold
+    },
+    
+    usageBar: {
+      width: '100%',
+      height: '4px',
+      backgroundColor: TavariStyles.colors.gray200,
+      borderRadius: TavariStyles.borderRadius.sm,
+      overflow: 'hidden'
+    },
+    
+    usageProgress: {
+      height: '100%',
+      transition: TavariStyles.transitions.normal
+    },
+    
+    datesDisplay: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.xs
+    },
+    
+    dateInfo: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray700
+    },
+    
+    actions: {
+      display: 'flex',
+      gap: TavariStyles.spacing.sm,
+      flexWrap: 'wrap'
+    },
+    
+    editButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.secondary,
+      ...TavariStyles.components.button.sizes.sm
+    },
+    
+    toggleButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.sizes.sm,
+      color: TavariStyles.colors.white
+    },
+    
+    deleteButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.danger,
+      ...TavariStyles.components.button.sizes.sm
+    },
+    
+    saveButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.success,
+      ...TavariStyles.components.button.sizes.sm
+    },
+    
+    cancelButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.ghost,
+      ...TavariStyles.components.button.sizes.sm
+    },
+    
+    previewButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.secondary,
+      ...TavariStyles.components.button.sizes.sm
+    },
+    
+    infoPanel: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.xl
+    },
+    
+    infoTitle: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.lg,
+      textAlign: 'center'
+    },
+    
+    infoGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+      gap: TavariStyles.spacing.lg
+    },
+    
+    infoCard: {
+      display: 'flex',
+      gap: TavariStyles.spacing.md,
+      padding: TavariStyles.spacing.lg,
+      backgroundColor: TavariStyles.colors.gray50,
+      borderRadius: TavariStyles.borderRadius.lg,
+      border: `1px solid ${TavariStyles.colors.gray200}`
+    },
+    
+    infoIcon: {
+      fontSize: '24px',
+      minWidth: '32px'
+    },
+    
+    infoContent: {
+      flex: 1
+    },
+    
+    infoLabel: {
+      fontSize: TavariStyles.typography.fontSize.base,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.xs
+    },
+    
+    infoText: {
+      fontSize: TavariStyles.typography.fontSize.sm,
+      color: TavariStyles.colors.gray600,
+      lineHeight: TavariStyles.typography.lineHeight.relaxed
+    }
+  };
 
   if (loading) {
     return (
@@ -369,10 +897,56 @@ const POSDiscounts = () => {
     <div style={styles.container}>
       <div style={styles.header}>
         <h2>POS Discounts</h2>
-        <p>Create and manage promotional discounts with advanced rules</p>
+        <p>Create and manage promotional discounts with advanced rules and tax integration</p>
       </div>
 
       {error && <div style={styles.errorBanner}>{error}</div>}
+      {taxError && <div style={styles.errorBanner}>Tax System Error: {taxError}</div>}
+
+      {/* Discount Preview Toggle */}
+      <div style={styles.previewToggle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: TavariStyles.spacing.md }}>
+          <h3>Discount Preview Calculator</h3>
+          <button 
+            onClick={() => setPreviewMode(!previewMode)}
+            style={styles.previewButton}
+          >
+            {previewMode ? 'Hide Preview' : 'Show Preview'}
+          </button>
+        </div>
+        
+        {previewMode && previewCart.length > 0 && (
+          <div style={styles.previewContent}>
+            <div style={styles.previewCard}>
+              <h4>Sample Cart</h4>
+              {previewCart.map(item => (
+                <div key={item.id} style={{ fontSize: TavariStyles.typography.fontSize.sm, marginBottom: TavariStyles.spacing.xs }}>
+                  {item.name} - ${Number(item.price).toFixed(2)}
+                </div>
+              ))}
+            </div>
+            
+            {discounts.filter(d => d.is_active).slice(0, 3).map(discount => {
+              const preview = calculateDiscountPreview(discount);
+              return (
+                <div key={discount.id} style={styles.previewCard}>
+                  <h4>{discount.name}</h4>
+                  <div style={{ fontSize: TavariStyles.typography.fontSize.xs }}>
+                    <div>Subtotal: ${preview.subtotal.toFixed(2)}</div>
+                    <div style={{ color: TavariStyles.colors.danger }}>
+                      Discount: -${preview.discountAmount.toFixed(2)}
+                    </div>
+                    <div>Tax: ${preview.taxAmount.toFixed(2)}</div>
+                    <div style={{ fontWeight: TavariStyles.typography.fontWeight.bold }}>
+                      Total: ${preview.total.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Add New Discount */}
       <div style={styles.addSection}>
@@ -493,24 +1067,44 @@ const POSDiscounts = () => {
             </div>
           </div>
 
-          <div style={styles.checkboxRow}>
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
+          <div style={styles.checkboxGrid}>
+            <div style={styles.checkboxGroup}>
+              <div style={styles.checkboxGroupTitle}>Application Rules</div>
+              <TavariCheckbox
                 checked={newAutoApply}
-                onChange={(e) => setNewAutoApply(e.target.checked)}
+                onChange={(checked) => setNewAutoApply(checked)}
+                label="Auto-apply when conditions are met"
+                size="md"
               />
-              Auto-apply when conditions are met
-            </label>
-
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
+              <TavariCheckbox
                 checked={newManagerRequired}
-                onChange={(e) => setNewManagerRequired(e.target.checked)}
+                onChange={(checked) => setNewManagerRequired(checked)}
+                label="Require manager approval"
+                size="md"
               />
-              Require manager approval
-            </label>
+              <TavariCheckbox
+                checked={newCombineWithOthers}
+                onChange={(checked) => setNewCombineWithOthers(checked)}
+                label="Can combine with other discounts"
+                size="md"
+              />
+            </div>
+
+            <div style={styles.checkboxGroup}>
+              <div style={styles.checkboxGroupTitle}>Tax Behavior</div>
+              <TavariCheckbox
+                checked={newApplyBeforeTax}
+                onChange={(checked) => setNewApplyBeforeTax(checked)}
+                label="Apply discount before tax calculation"
+                size="md"
+              />
+              <TavariCheckbox
+                checked={newTaxExempt}
+                onChange={(checked) => setNewTaxExempt(checked)}
+                label="Discount is tax exempt (reduces taxable amount)"
+                size="md"
+              />
+            </div>
           </div>
 
           <button 
@@ -530,7 +1124,7 @@ const POSDiscounts = () => {
             <tr style={styles.headerRow}>
               <th style={styles.th}>Status</th>
               <th style={styles.th}>Name & Details</th>
-              <th style={styles.th}>Value</th>
+              <th style={styles.th}>Value & Tax</th>
               <th style={styles.th}>Rules & Usage</th>
               <th style={styles.th}>Dates</th>
               <th style={styles.th}>Actions</th>
@@ -551,7 +1145,7 @@ const POSDiscounts = () => {
               return (
                 <tr key={discount.id} style={{
                   ...styles.row,
-                  backgroundColor: i % 2 === 0 ? '#f9f9f9' : 'white',
+                  backgroundColor: i % 2 === 0 ? TavariStyles.colors.gray50 : TavariStyles.colors.white,
                   opacity: !discount.is_active ? 0.6 : 1
                 }}>
                   <td style={styles.td}>
@@ -559,7 +1153,7 @@ const POSDiscounts = () => {
                       <div
                         style={{
                           ...styles.statusIndicator,
-                          backgroundColor: discount.is_active ? '#059669' : '#dc2626'
+                          backgroundColor: discount.is_active ? TavariStyles.colors.success : TavariStyles.colors.danger
                         }}
                       />
                       <div style={styles.statusLabels}>
@@ -578,12 +1172,12 @@ const POSDiscounts = () => {
                   
                   <td style={styles.td}>
                     {editId === discount.id ? (
-                      <div style={styles.editNameSection}>
+                      <div style={styles.editSection}>
                         <input
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          style={styles.input}
+                          style={styles.smallInput}
                           placeholder="Discount name"
                         />
                         <textarea
@@ -609,7 +1203,7 @@ const POSDiscounts = () => {
                   
                   <td style={styles.td}>
                     {editId === discount.id ? (
-                      <div style={styles.editValueSection}>
+                      <div style={styles.editSection}>
                         <select
                           value={editType}
                           onChange={(e) => setEditType(e.target.value)}
@@ -635,6 +1229,20 @@ const POSDiscounts = () => {
                           <option value="transaction">Total</option>
                           <option value="item">Per Item</option>
                         </select>
+                        <div style={{ display: 'flex', gap: TavariStyles.spacing.xs, flexWrap: 'wrap' }}>
+                          <TavariCheckbox
+                            checked={editApplyBeforeTax}
+                            onChange={(checked) => setEditApplyBeforeTax(checked)}
+                            label="Before Tax"
+                            size="sm"
+                          />
+                          <TavariCheckbox
+                            checked={editTaxExempt}
+                            onChange={(checked) => setEditTaxExempt(checked)}
+                            label="Tax Exempt"
+                            size="sm"
+                          />
+                        </div>
                       </div>
                     ) : (
                       <div style={styles.valueDisplay}>
@@ -647,13 +1255,17 @@ const POSDiscounts = () => {
                         <div style={styles.applicationType}>
                           {discount.application_type === 'item' ? 'Per Item' : 'Total Order'}
                         </div>
+                        <div style={styles.taxInfo}>
+                          {discount.apply_before_tax ? 'Before Tax' : 'After Tax'}
+                          {discount.tax_exempt && ' • Tax Exempt'}
+                        </div>
                       </div>
                     )}
                   </td>
                   
                   <td style={styles.td}>
                     {editId === discount.id ? (
-                      <div style={styles.editRulesSection}>
+                      <div style={styles.editSection}>
                         <input
                           type="number"
                           value={editMinPurchase}
@@ -671,31 +1283,31 @@ const POSDiscounts = () => {
                           placeholder="Max uses"
                           min="1"
                         />
-                        <div style={styles.editCheckboxes}>
-                          <label style={styles.smallCheckboxLabel}>
-                            <input
-                              type="checkbox"
-                              checked={editAutoApply}
-                              onChange={(e) => setEditAutoApply(e.target.checked)}
-                            />
-                            Auto
-                          </label>
-                          <label style={styles.smallCheckboxLabel}>
-                            <input
-                              type="checkbox"
-                              checked={editManagerRequired}
-                              onChange={(e) => setEditManagerRequired(e.target.checked)}
-                            />
-                            Mgr
-                          </label>
-                          <label style={styles.smallCheckboxLabel}>
-                            <input
-                              type="checkbox"
-                              checked={editIsActive}
-                              onChange={(e) => setEditIsActive(e.target.checked)}
-                            />
-                            Active
-                          </label>
+                        <div style={{ display: 'flex', gap: TavariStyles.spacing.xs, flexWrap: 'wrap' }}>
+                          <TavariCheckbox
+                            checked={editAutoApply}
+                            onChange={(checked) => setEditAutoApply(checked)}
+                            label="Auto"
+                            size="sm"
+                          />
+                          <TavariCheckbox
+                            checked={editManagerRequired}
+                            onChange={(checked) => setEditManagerRequired(checked)}
+                            label="Mgr"
+                            size="sm"
+                          />
+                          <TavariCheckbox
+                            checked={editCombineWithOthers}
+                            onChange={(checked) => setEditCombineWithOthers(checked)}
+                            label="Stack"
+                            size="sm"
+                          />
+                          <TavariCheckbox
+                            checked={editIsActive}
+                            onChange={(checked) => setEditIsActive(checked)}
+                            label="Active"
+                            size="sm"
+                          />
                         </div>
                       </div>
                     ) : (
@@ -710,7 +1322,10 @@ const POSDiscounts = () => {
                             <div style={styles.rule}>⚡ Auto-apply</div>
                           )}
                           {discount.manager_required && (
-                            <div style={styles.rule}>👔 Manager required</div>
+                            <div style={styles.rule}>🔒 Manager required</div>
+                          )}
+                          {discount.combine_with_others && (
+                            <div style={styles.rule}>🔗 Stackable</div>
                           )}
                         </div>
                         {usageStatus && (
@@ -738,18 +1353,18 @@ const POSDiscounts = () => {
                   
                   <td style={styles.td}>
                     {editId === discount.id ? (
-                      <div style={styles.editDatesSection}>
+                      <div style={styles.editSection}>
                         <input
                           type="date"
                           value={editValidFrom}
                           onChange={(e) => setEditValidFrom(e.target.value)}
-                          style={styles.dateInput}
+                          style={styles.smallInput}
                         />
                         <input
                           type="date"
                           value={editValidTo}
                           onChange={(e) => setEditValidTo(e.target.value)}
-                          style={styles.dateInput}
+                          style={styles.smallInput}
                         />
                       </div>
                     ) : (
@@ -773,7 +1388,7 @@ const POSDiscounts = () => {
                   
                   <td style={styles.td}>
                     {editId === discount.id ? (
-                      <div style={styles.editActions}>
+                      <div style={styles.actions}>
                         <button 
                           onClick={saveEdit} 
                           style={styles.saveButton}
@@ -797,7 +1412,7 @@ const POSDiscounts = () => {
                           onClick={() => toggleDiscountStatus(discount.id, discount.is_active, discount.name)}
                           style={{
                             ...styles.toggleButton,
-                            backgroundColor: discount.is_active ? '#f59e0b' : '#059669'
+                            backgroundColor: discount.is_active ? TavariStyles.colors.warning : TavariStyles.colors.success
                           }}
                         >
                           {discount.is_active ? 'Disable' : 'Enable'}
@@ -820,12 +1435,12 @@ const POSDiscounts = () => {
 
       {/* Info Panel */}
       <div style={styles.infoPanel}>
-        <h3 style={styles.infoTitle}>Discount Management Features</h3>
+        <h3 style={styles.infoTitle}>Advanced Discount Features</h3>
         <div style={styles.infoGrid}>
           <div style={styles.infoCard}>
             <div style={styles.infoIcon}>⚡</div>
             <div style={styles.infoContent}>
-              <div style={styles.infoLabel}>Auto-Apply</div>
+              <div style={styles.infoLabel}>Auto-Apply Logic</div>
               <div style={styles.infoText}>
                 Automatically apply discounts when conditions are met (minimum purchase, date range, etc.)
               </div>
@@ -833,11 +1448,31 @@ const POSDiscounts = () => {
           </div>
           
           <div style={styles.infoCard}>
-            <div style={styles.infoIcon}>👔</div>
+            <div style={styles.infoIcon}>🔒</div>
             <div style={styles.infoContent}>
               <div style={styles.infoLabel}>Manager Approval</div>
               <div style={styles.infoText}>
                 Require manager PIN entry before applying sensitive discounts
+              </div>
+            </div>
+          </div>
+          
+          <div style={styles.infoCard}>
+            <div style={styles.infoIcon}>🧮</div>
+            <div style={styles.infoContent}>
+              <div style={styles.infoLabel}>Tax Integration</div>
+              <div style={styles.infoText}>
+                Configure whether discounts apply before or after tax calculation with full tax system compatibility
+              </div>
+            </div>
+          </div>
+          
+          <div style={styles.infoCard}>
+            <div style={styles.infoIcon}>🔗</div>
+            <div style={styles.infoContent}>
+              <div style={styles.infoLabel}>Discount Stacking</div>
+              <div style={styles.infoText}>
+                Control which discounts can be combined with others for flexible promotional strategies
               </div>
             </div>
           </div>
@@ -867,427 +1502,20 @@ const POSDiscounts = () => {
   );
 };
 
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    backgroundColor: '#f8f9fa',
-    padding: '20px',
-    paddingTop: '100px',
-    boxSizing: 'border-box'
-  },
-  header: {
-    marginBottom: '30px',
-    textAlign: 'center'
-  },
-  errorBanner: {
-    backgroundColor: '#fee2e2',
-    color: '#dc2626',
-    padding: '15px',
-    borderRadius: '8px',
-    marginBottom: '20px',
-    fontWeight: 'bold'
-  },
-  error: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#dc2626'
-  },
-  loading: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#6b7280'
-  },
-  addSection: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '20px',
-    marginBottom: '30px',
-    border: '2px solid #008080'
-  },
-  sectionTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '20px',
-    paddingBottom: '10px',
-    borderBottom: '2px solid #008080'
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px'
-  },
-  formRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '15px',
-    alignItems: 'end'
-  },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  label: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    marginBottom: '6px'
-  },
-  input: {
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px'
-  },
-  select: {
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px',
-    backgroundColor: 'white'
-  },
-  textarea: {
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px',
-    fontFamily: 'inherit',
-    resize: 'vertical'
-  },
-  checkboxRow: {
-    display: 'flex',
-    gap: '20px',
-    alignItems: 'center',
-    flexWrap: 'wrap'
-  },
-  checkboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    cursor: 'pointer'
-  },
-  addButton: {
-    padding: '15px 20px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    alignSelf: 'flex-start'
-  },
-  tableContainer: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    overflow: 'auto',
-    border: '1px solid #e5e7eb',
-    marginBottom: '20px'
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '14px'
-  },
-  headerRow: {
-    backgroundColor: '#008080',
-    color: 'white',
-    position: 'sticky',
-    top: 0
-  },
-  th: {
-    padding: '15px 12px',
-    textAlign: 'left',
-    fontWeight: 'bold',
-    borderBottom: '2px solid #006666'
-  },
-  row: {
-    transition: 'background-color 0.2s ease'
-  },
-  td: {
-    padding: '12px',
-    borderBottom: '1px solid #f3f4f6',
-    verticalAlign: 'top'
-  },
-  emptyCell: {
-    padding: '40px',
-    textAlign: 'center',
-    color: '#6b7280',
-    fontStyle: 'italic'
-  },
-  statusCell: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px'
-  },
-  statusIndicator: {
-    width: '12px',
-    height: '12px',
-    borderRadius: '50%'
-  },
-  statusLabels: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px'
-  },
-  statusLabel: {
-    fontSize: '12px',
-    fontWeight: 'bold',
-    color: '#1f2937'
-  },
-  dateStatusLabel: {
-    fontSize: '10px',
-    fontWeight: 'normal'
-  },
-  nameSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px'
-  },
-  discountName: {
-    fontSize: '16px',
-    fontWeight: 'bold',
-    color: '#1f2937'
-  },
-  discountDescription: {
-    fontSize: '12px',
-    color: '#6b7280',
-    fontStyle: 'italic'
-  },
-  discountSummary: {
-    fontSize: '14px',
-    color: '#374151'
-  },
-  editNameSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px'
-  },
-  smallTextarea: {
-    padding: '8px',
-    border: '1px solid #d1d5db',
-    borderRadius: '4px',
-    fontSize: '12px',
-    fontFamily: 'inherit',
-    resize: 'vertical'
-  },
-  valueDisplay: {
-    textAlign: 'center'
-  },
-  discountValue: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#008080'
-  },
-  applicationType: {
-    fontSize: '12px',
-    color: '#6b7280',
-    marginTop: '2px'
-  },
-  editValueSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px'
-  },
-  smallSelect: {
-    padding: '6px',
-    border: '1px solid #d1d5db',
-    borderRadius: '4px',
-    fontSize: '12px',
-    backgroundColor: 'white'
-  },
-  smallInput: {
-    padding: '6px',
-    border: '1px solid #d1d5db',
-    borderRadius: '4px',
-    fontSize: '12px'
-  },
-  rulesDisplay: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px'
-  },
-  rulesList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px'
-  },
-  rule: {
-    fontSize: '12px',
-    color: '#374151'
-  },
-  usageStatus: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px'
-  },
-  usageText: {
-    fontSize: '11px',
-    fontWeight: 'bold'
-  },
-  usageBar: {
-    width: '100%',
-    height: '4px',
-    backgroundColor: '#f3f4f6',
-    borderRadius: '2px',
-    overflow: 'hidden'
-  },
-  usageProgress: {
-    height: '100%',
-    transition: 'width 0.3s ease'
-  },
-  editRulesSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px'
-  },
-  editCheckboxes: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px'
-  },
-  smallCheckboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '11px',
-    cursor: 'pointer'
-  },
-  datesDisplay: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px'
-  },
-  dateInfo: {
-    fontSize: '12px',
-    color: '#374151'
-  },
-  editDatesSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px'
-  },
-  dateInput: {
-    padding: '6px',
-    border: '1px solid #d1d5db',
-    borderRadius: '4px',
-    fontSize: '12px'
-  },
-  actions: {
-    display: 'flex',
-    gap: '6px',
-    flexWrap: 'wrap'
-  },
-  editActions: {
-    display: 'flex',
-    gap: '6px',
-    flexWrap: 'wrap'
-  },
-  editButton: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    border: 'none',
-    padding: '6px 10px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  toggleButton: {
-    color: 'white',
-    border: 'none',
-    padding: '6px 10px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  deleteButton: {
-    backgroundColor: '#dc2626',
-    color: 'white',
-    border: 'none',
-    padding: '6px 10px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  saveButton: {
-    backgroundColor: '#059669',
-    color: 'white',
-    border: 'none',
-    padding: '6px 10px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  cancelButton: {
-    backgroundColor: '#6b7280',
-    color: 'white',
-    border: 'none',
-    padding: '6px 10px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  infoPanel: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '20px',
-    border: '1px solid #e5e7eb'
-  },
-  infoTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '15px',
-    textAlign: 'center'
-  },
-  infoGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '15px'
-  },
-  infoCard: {
-    display: 'flex',
-    gap: '12px',
-    padding: '15px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb'
-  },
-  infoIcon: {
-    fontSize: '24px',
-    minWidth: '32px'
-  },
-  infoContent: {
-    flex: 1
-  },
-  infoLabel: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '4px'
-  },
-  infoText: {
-    fontSize: '13px',
-    color: '#6b7280',
-    lineHeight: '1.4'
-  }
+// Main component with authentication wrapper
+const POSDiscounts = () => {
+  const [authState, setAuthState] = useState(null);
+
+  return (
+    <POSAuthWrapper
+      componentName="POS Discounts"
+      requiredRoles={['owner', 'manager', 'employee']}
+      requireBusiness={true}
+      onAuthReady={setAuthState}
+    >
+      {authState && <POSDiscountsContent authState={authState} />}
+    </POSAuthWrapper>
+  );
 };
 
 export default POSDiscounts;

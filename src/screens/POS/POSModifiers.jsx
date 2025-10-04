@@ -1,53 +1,80 @@
-// src/screens/POS/POSModifiers.jsx
-// Steps 111-113: Complete modifier groups with required/optional logic and pricing controls
+// src/screens/POS/POSModifiers.jsx - Simplified modifier groups with automatic item addition
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
-import { useBusiness } from '../../contexts/BusinessContext';
 import { logAction } from '../../helpers/posAudit';
 
-const POSModifiers = () => {
-  const { business } = useBusiness();
-  const businessId = business?.id;
+// Foundation imports
+import POSAuthWrapper from '../../components/Auth/POSAuthWrapper';
+import { usePOSAuth } from '../../hooks/usePOSAuth';
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
+import TavariCheckbox from '../../components/UI/TavariCheckbox';
+import { TavariStyles } from '../../utils/TavariStyles';
 
+const POSModifiers = () => {
+  const navigate = useNavigate();
+
+  // Authentication
+  const auth = usePOSAuth({
+    requiredRoles: ['employee', 'manager', 'owner'],
+    requireBusiness: true,
+    componentName: 'POSModifiers'
+  });
+
+  // State
   const [modifierGroups, setModifierGroups] = useState([]);
   const [categories, setCategories] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // New modifier group form
+  // Form states for new group
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupRequired, setNewGroupRequired] = useState(false);
   const [newGroupMinSelections, setNewGroupMinSelections] = useState('');
   const [newGroupMaxSelections, setNewGroupMaxSelections] = useState('');
   const [newGroupMaxFree, setNewGroupMaxFree] = useState('');
-  const [newGroupCategoryId, setNewGroupCategoryId] = useState('');
 
-  // Edit modifier group form
+  // Edit group states
   const [editGroupId, setEditGroupId] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
   const [editGroupRequired, setEditGroupRequired] = useState(false);
   const [editGroupMinSelections, setEditGroupMinSelections] = useState('');
   const [editGroupMaxSelections, setEditGroupMaxSelections] = useState('');
   const [editGroupMaxFree, setEditGroupMaxFree] = useState('');
-  const [editGroupCategoryId, setEditGroupCategoryId] = useState('');
 
-  // New modifier item form
+  // States for adding items to groups
   const [selectedGroupId, setSelectedGroupId] = useState(null);
-  const [newItemInventoryId, setNewItemInventoryId] = useState('');
-  const [newItemPrice, setNewItemPrice] = useState('');
-  const [newItemIsFree, setNewItemIsFree] = useState(false);
-  const [newItemDefaultSelected, setNewItemDefaultSelected] = useState(false);
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [selectedInventoryId, setSelectedInventoryId] = useState('');
+  const [addItemType, setAddItemType] = useState('existing');
+  const [priceOverride, setPriceOverride] = useState('');
 
+  // States for creating new inventory items
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [newInventoryName, setNewInventoryName] = useState('');
+  const [newInventoryPrice, setNewInventoryPrice] = useState('');
+  const [newInventoryCost, setNewInventoryCost] = useState('');
+  const [newInventorySKU, setNewInventorySKU] = useState('');
+  const [newInventoryCategory, setNewInventoryCategory] = useState('');
+  const [newInventoryTrackStock, setNewInventoryTrackStock] = useState(false);
+
+  // Expanded groups for showing items
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
+
+  // Load data when authenticated
   useEffect(() => {
-    if (businessId) {
+    if (auth.selectedBusinessId && auth.authUser) {
       fetchModifierGroups();
       fetchCategories();
       fetchInventoryItems();
     }
-  }, [businessId]);
+  }, [auth.selectedBusinessId, auth.authUser]);
 
   const fetchModifierGroups = async () => {
+    if (!auth.selectedBusinessId) return;
+
     setLoading(true);
     setError(null);
     try {
@@ -65,11 +92,13 @@ const POSModifiers = () => {
             pos_inventory (
               id,
               name,
-              price
+              price,
+              cost
             )
           )
         `)
-        .eq('business_id', businessId)
+        .eq('business_id', auth.selectedBusinessId)
+        .eq('is_active', true)
         .order('sort_order', { ascending: true });
 
       if (error) throw error;
@@ -89,11 +118,13 @@ const POSModifiers = () => {
   };
 
   const fetchCategories = async () => {
+    if (!auth.selectedBusinessId) return;
+
     try {
       const { data, error } = await supabase
         .from('pos_categories')
         .select('id, name')
-        .eq('business_id', businessId)
+        .eq('business_id', auth.selectedBusinessId)
         .order('sort_order', { ascending: true });
       if (error) throw error;
       setCategories(data || []);
@@ -103,11 +134,13 @@ const POSModifiers = () => {
   };
 
   const fetchInventoryItems = async () => {
+    if (!auth.selectedBusinessId) return;
+
     try {
       const { data, error } = await supabase
         .from('pos_inventory')
-        .select('id, name, price, category_id')
-        .eq('business_id', businessId)
+        .select('id, name, price, cost, category_id')
+        .eq('business_id', auth.selectedBusinessId)
         .order('name', { ascending: true });
       if (error) throw error;
       setInventoryItems(data || []);
@@ -122,7 +155,6 @@ const POSModifiers = () => {
       return;
     }
 
-    // Validation
     const minSel = parseInt(newGroupMinSelections) || 0;
     const maxSel = parseInt(newGroupMaxSelections) || 0;
     const maxFree = parseInt(newGroupMaxFree) || 0;
@@ -132,29 +164,19 @@ const POSModifiers = () => {
       return;
     }
 
-    if (maxSel > 0 && minSel > maxSel) {
-      setError('Minimum selections cannot exceed maximum selections');
-      return;
-    }
-
-    if (maxFree > maxSel && maxSel > 0) {
-      setError('Max free items cannot exceed max selections');
-      return;
-    }
-
     setError(null);
     try {
       const maxSortOrder = modifierGroups.length > 0 ? Math.max(...modifierGroups.map(g => g.sort_order || 0)) : 0;
 
       const { error } = await supabase.from('pos_modifier_groups').insert([{
-        business_id: businessId,
+        business_id: auth.selectedBusinessId,
         name: newGroupName.trim(),
         is_required: newGroupRequired,
         min_selections: minSel || null,
         max_selections: maxSel || null,
         max_free_items: maxFree || null,
-        category_id: newGroupCategoryId || null,
         sort_order: maxSortOrder + 1,
+        is_active: true,
         created_at: new Date().toISOString()
       }]);
 
@@ -172,63 +194,40 @@ const POSModifiers = () => {
         }
       });
 
-      // Reset form
       setNewGroupName('');
       setNewGroupRequired(false);
       setNewGroupMinSelections('');
       setNewGroupMaxSelections('');
       setNewGroupMaxFree('');
-      setNewGroupCategoryId('');
-
       fetchModifierGroups();
+      showToast('Modifier group created successfully!', 'success');
     } catch (err) {
       setError('Error adding modifier group: ' + err.message);
     }
   };
 
-  const startEditGroup = (group) => {
+  const openEditModal = (group) => {
     setEditGroupId(group.id);
     setEditGroupName(group.name);
     setEditGroupRequired(group.is_required || false);
-    setEditGroupMinSelections(group.min_selections?.toString() || '');
-    setEditGroupMaxSelections(group.max_selections?.toString() || '');
-    setEditGroupMaxFree(group.max_free_items?.toString() || '');
-    setEditGroupCategoryId(group.category_id || '');
+    setEditGroupMinSelections(group.min_selections || '');
+    setEditGroupMaxSelections(group.max_selections || '');
+    setEditGroupMaxFree(group.max_free_items || '');
+    setShowEditModal(true);
   };
 
-  const cancelEditGroup = () => {
-    setEditGroupId(null);
-    setEditGroupName('');
-    setEditGroupRequired(false);
-    setEditGroupMinSelections('');
-    setEditGroupMaxSelections('');
-    setEditGroupMaxFree('');
-    setEditGroupCategoryId('');
-  };
-
-  const saveEditGroup = async () => {
+  const updateModifierGroup = async () => {
     if (!editGroupName.trim()) {
       setError('Group name is required');
       return;
     }
 
-    // Validation
     const minSel = parseInt(editGroupMinSelections) || 0;
     const maxSel = parseInt(editGroupMaxSelections) || 0;
     const maxFree = parseInt(editGroupMaxFree) || 0;
 
     if (editGroupRequired && minSel === 0) {
       setError('Required groups must have minimum selections > 0');
-      return;
-    }
-
-    if (maxSel > 0 && minSel > maxSel) {
-      setError('Minimum selections cannot exceed maximum selections');
-      return;
-    }
-
-    if (maxFree > maxSel && maxSel > 0) {
-      setError('Max free items cannot exceed max selections');
       return;
     }
 
@@ -242,7 +241,6 @@ const POSModifiers = () => {
           min_selections: minSel || null,
           max_selections: maxSel || null,
           max_free_items: maxFree || null,
-          category_id: editGroupCategoryId || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', editGroupId);
@@ -254,918 +252,974 @@ const POSModifiers = () => {
         context: 'POSModifiers',
         metadata: {
           group_id: editGroupId,
-          group_name: editGroupName.trim(),
-          is_required: editGroupRequired
+          group_name: editGroupName.trim()
         }
       });
 
-      cancelEditGroup();
+      setShowEditModal(false);
+      setEditGroupId(null);
       fetchModifierGroups();
+      showToast('Modifier group updated successfully!', 'success');
     } catch (err) {
       setError('Error updating modifier group: ' + err.message);
     }
   };
 
-  const deleteModifierGroup = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to delete modifier group "${name}"? This will also delete all items in this group.`)) return;
-
-    setError(null);
-    try {
-      // First delete all items in the group
-      await supabase.from('pos_modifier_group_items').delete().eq('modifier_group_id', id);
-      
-      // Then delete the group
-      const { error } = await supabase.from('pos_modifier_groups').delete().eq('id', id);
-      if (error) throw error;
-
-      await logAction({
-        action: 'pos_modifier_group_deleted',
-        context: 'POSModifiers',
-        metadata: { group_id: id, group_name: name }
-      });
-
-      fetchModifierGroups();
-    } catch (err) {
-      setError('Error deleting modifier group: ' + err.message);
+  const toggleGroupExpanded = (groupId) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupId)) {
+      newExpanded.delete(groupId);
+    } else {
+      newExpanded.add(groupId);
     }
+    setExpandedGroups(newExpanded);
   };
 
-  const moveGroup = async (id, direction) => {
-    setError(null);
-    try {
-      const index = modifierGroups.findIndex(g => g.id === id);
-      if (index === -1) return;
-
-      const swapIndex = index + direction;
-      if (swapIndex < 0 || swapIndex >= modifierGroups.length) return;
-
-      const groupA = modifierGroups[index];
-      const groupB = modifierGroups[swapIndex];
-
-      const updates = [
-        { id: groupA.id, sort_order: groupB.sort_order || 0 },
-        { id: groupB.id, sort_order: groupA.sort_order || 0 }
-      ];
-
-      for (const update of updates) {
-        const { error } = await supabase
-          .from('pos_modifier_groups')
-          .update({ 
-            sort_order: update.sort_order,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', update.id);
-        if (error) throw error;
-      }
-
-      fetchModifierGroups();
-    } catch (err) {
-      setError('Error moving modifier group: ' + err.message);
-    }
-  };
-
-  const addModifierItem = async () => {
-    if (!selectedGroupId || !newItemInventoryId) {
-      setError('Please select a group and inventory item');
+  const createInventoryItem = async () => {
+    if (!newInventoryName.trim()) {
+      setError('Item name is required');
       return;
     }
 
-    const price = newItemIsFree ? 0 : (parseFloat(newItemPrice) || 0);
+    const price = parseFloat(newInventoryPrice) || 0;
+    const cost = parseFloat(newInventoryCost) || 0;
+
+    if (price < 0 || cost < 0) {
+      setError('Price and cost cannot be negative');
+      return;
+    }
 
     setError(null);
     try {
-      // Check if item already exists in this group
-      const { data: existing } = await supabase
-        .from('pos_modifier_group_items')
-        .select('id')
-        .eq('modifier_group_id', selectedGroupId)
-        .eq('inventory_id', newItemInventoryId);
-
-      if (existing && existing.length > 0) {
-        setError('This item is already in the selected group');
-        return;
-      }
-
-      // Get max sort order for this group
-      const { data: groupItems } = await supabase
-        .from('pos_modifier_group_items')
-        .select('sort_order')
-        .eq('modifier_group_id', selectedGroupId);
-
-      const maxSortOrder = groupItems && groupItems.length > 0 ? Math.max(...groupItems.map(i => i.sort_order || 0)) : 0;
-
-      const { error } = await supabase.from('pos_modifier_group_items').insert([{
-        modifier_group_id: selectedGroupId,
-        inventory_id: newItemInventoryId,
-        price_override: price > 0 ? price : null,
-        is_free: newItemIsFree,
-        is_default_selected: newItemDefaultSelected,
-        sort_order: maxSortOrder + 1,
-        created_at: new Date().toISOString()
-      }]);
+      const { data: newItem, error } = await supabase
+        .from('pos_inventory')
+        .insert([{
+          business_id: auth.selectedBusinessId,
+          name: newInventoryName.trim(),
+          price: price,
+          cost: cost,
+          sku: newInventorySKU.trim() || null,
+          category_id: newInventoryCategory || null,
+          track_stock: newInventoryTrackStock,
+          stock_quantity: newInventoryTrackStock ? 0 : null,
+          low_stock_threshold: newInventoryTrackStock ? 5 : null,
+          is_modifier_item: true,
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
 
       if (error) throw error;
 
-      const inventoryItem = inventoryItems.find(item => item.id === newItemInventoryId);
-      const groupName = modifierGroups.find(g => g.id === selectedGroupId)?.name;
+      await logAction({
+        action: 'pos_inventory_item_created',
+        context: 'POSModifiers',
+        metadata: {
+          item_name: newInventoryName.trim(),
+          price: price,
+          cost: cost,
+          created_for_modifier: true
+        }
+      });
+
+      // Reset inventory form
+      setNewInventoryName('');
+      setNewInventoryPrice('');
+      setNewInventoryCost('');
+      setNewInventorySKU('');
+      setNewInventoryCategory('');
+      setNewInventoryTrackStock(false);
+      setShowInventoryModal(false);
+
+      // Refresh inventory list
+      await fetchInventoryItems();
+
+      // Automatically add the new item to the modifier group
+      const priceOverrideValue = parseFloat(priceOverride) || null;
+
+      const { error: addError } = await supabase
+        .from('pos_modifier_group_items')
+        .insert([{
+          modifier_group_id: selectedGroupId,
+          inventory_id: newItem.id,
+          price_override: priceOverrideValue,
+          is_free: priceOverrideValue === 0,
+          is_default_selected: false,
+          is_active: true,
+          sort_order: 1
+        }]);
+
+      if (addError) {
+        setError('Item created but failed to add to group: ' + addError.message);
+        return;
+      }
 
       await logAction({
         action: 'pos_modifier_item_added',
         context: 'POSModifiers',
         metadata: {
-          group_name: groupName,
-          item_name: inventoryItem?.name,
-          price: price,
-          is_free: newItemIsFree,
-          is_default: newItemDefaultSelected
+          group_id: selectedGroupId,
+          item_name: newInventoryName.trim(),
+          price_override: priceOverrideValue,
+          auto_added: true
+        }
+      });
+
+      // Close the add item modal and refresh
+      setShowAddItemModal(false);
+      setSelectedGroupId(null);
+      setPriceOverride('');
+      fetchModifierGroups();
+      setExpandedGroups(prev => new Set([...prev, selectedGroupId]));
+      showToast('Inventory item created and added to modifier group!', 'success');
+      
+    } catch (err) {
+      setError('Error creating inventory item: ' + err.message);
+    }
+  };
+
+  const addItemToGroup = async () => {
+    if (!selectedGroupId || !selectedInventoryId) {
+      setError('Please select an inventory item');
+      return;
+    }
+
+    const priceOverrideValue = parseFloat(priceOverride) || null;
+
+    setError(null);
+    try {
+      const { error } = await supabase
+        .from('pos_modifier_group_items')
+        .insert([{
+          modifier_group_id: selectedGroupId,
+          inventory_id: selectedInventoryId,
+          price_override: priceOverrideValue,
+          is_free: priceOverrideValue === 0,
+          is_default_selected: false,
+          is_active: true,
+          sort_order: 1
+        }]);
+
+      if (error) throw error;
+
+      const selectedItem = inventoryItems.find(item => item.id === selectedInventoryId);
+      
+      await logAction({
+        action: 'pos_modifier_item_added',
+        context: 'POSModifiers',
+        metadata: {
+          group_id: selectedGroupId,
+          item_name: selectedItem?.name,
+          price_override: priceOverrideValue
         }
       });
 
       // Reset form
-      setNewItemInventoryId('');
-      setNewItemPrice('');
-      setNewItemIsFree(false);
-      setNewItemDefaultSelected(false);
-
+      setSelectedInventoryId('');
+      setPriceOverride('');
+      setShowAddItemModal(false);
+      setSelectedGroupId(null);
+      
+      // Refresh data and expand the group to show new item
       fetchModifierGroups();
+      setExpandedGroups(prev => new Set([...prev, selectedGroupId]));
+      showToast('Item added to modifier group!', 'success');
     } catch (err) {
-      setError('Error adding modifier item: ' + err.message);
+      setError('Error adding item to group: ' + err.message);
     }
   };
 
-  const removeModifierItem = async (itemId, itemName, groupName) => {
-    if (!window.confirm(`Remove "${itemName}" from "${groupName}"?`)) return;
+  const deleteModifierGroup = async (groupId, groupName) => {
+    if (!window.confirm(`Are you sure you want to delete modifier group "${groupName}" and all its items?`)) return;
 
     setError(null);
     try {
-      const { error } = await supabase.from('pos_modifier_group_items').delete().eq('id', itemId);
+      // Delete group items first
+      await supabase
+        .from('pos_modifier_group_items')
+        .delete()
+        .eq('modifier_group_id', groupId);
+
+      // Delete the group
+      const { error } = await supabase
+        .from('pos_modifier_groups')
+        .delete()
+        .eq('id', groupId);
+
       if (error) throw error;
 
       await logAction({
-        action: 'pos_modifier_item_removed',
+        action: 'pos_modifier_group_deleted',
         context: 'POSModifiers',
-        metadata: {
-          item_name: itemName,
-          group_name: groupName
-        }
+        metadata: { group_id: groupId, group_name: groupName }
       });
 
       fetchModifierGroups();
+      showToast('Modifier group deleted successfully', 'success');
     } catch (err) {
-      setError('Error removing modifier item: ' + err.message);
+      setError('Error deleting modifier group: ' + err.message);
     }
   };
 
-  const getCategoryName = (categoryId) => {
-    const category = categories.find(c => c.id === categoryId);
-    return category ? category.name : 'No Category';
+  const removeItemFromGroup = async (groupItemId, itemName) => {
+    if (!window.confirm(`Remove "${itemName}" from this modifier group?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('pos_modifier_group_items')
+        .delete()
+        .eq('id', groupItemId);
+
+      if (error) throw error;
+
+      fetchModifierGroups();
+      showToast('Item removed from group', 'success');
+    } catch (err) {
+      setError('Error removing item: ' + err.message);
+    }
   };
 
-  const getValidationSummary = (group) => {
-    const parts = [];
+  const showToast = (message, type = 'info') => {
+    const toast = document.createElement('div');
+    const bgColor = type === 'error' ? TavariStyles.colors.danger : 
+                   type === 'success' ? TavariStyles.colors.success : 
+                   TavariStyles.colors.primary;
     
-    if (group.is_required) {
-      parts.push('Required');
-    } else {
-      parts.push('Optional');
-    }
-
-    if (group.min_selections > 0) {
-      parts.push(`Min: ${group.min_selections}`);
-    }
-
-    if (group.max_selections > 0) {
-      parts.push(`Max: ${group.max_selections}`);
-    }
-
-    if (group.max_free_items > 0) {
-      parts.push(`Free: ${group.max_free_items}`);
-    }
-
-    return parts.join(' | ');
+    toast.style.cssText = `
+      position: fixed;
+      top: 120px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 6px;
+      color: white;
+      font-weight: bold;
+      z-index: 1000;
+      background-color: ${bgColor};
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+      if (document.body.contains(toast)) {
+        document.body.removeChild(toast);
+      }
+    }, 4000);
   };
 
-  if (!businessId) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.error}>Please select a business to manage modifiers.</div>
-      </div>
-    );
-  }
+  const styles = {
+    container: TavariStyles.layout.container,
+    
+    header: {
+      marginBottom: TavariStyles.spacing['2xl'],
+      textAlign: 'center'
+    },
+    
+    title: {
+      fontSize: TavariStyles.typography.fontSize['3xl'],
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    subtitle: {
+      fontSize: TavariStyles.typography.fontSize.lg,
+      color: TavariStyles.colors.gray600
+    },
+    
+    errorBanner: {
+      ...TavariStyles.components.banner.base,
+      ...TavariStyles.components.banner.variants.error,
+      marginBottom: TavariStyles.spacing.xl
+    },
+    
+    loading: TavariStyles.components.loading.container,
+    
+    addSection: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.xl,
+      marginBottom: TavariStyles.spacing['2xl'],
+      border: `2px solid ${TavariStyles.colors.primary}`
+    },
+    
+    sectionTitle: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.xl,
+      paddingBottom: TavariStyles.spacing.md,
+      borderBottom: `2px solid ${TavariStyles.colors.primary}`
+    },
+    
+    form: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: TavariStyles.spacing.xl
+    },
+    
+    formRow: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+      gap: TavariStyles.spacing.lg,
+      alignItems: 'end'
+    },
+    
+    formGroup: {
+      display: 'flex',
+      flexDirection: 'column'
+    },
+    
+    label: TavariStyles.components.form.label,
+    input: TavariStyles.components.form.input,
+    select: TavariStyles.components.form.select,
+    
+    addButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.primary,
+      ...TavariStyles.components.button.sizes.lg,
+      alignSelf: 'flex-start'
+    },
+    
+    groupCard: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.xl,
+      marginBottom: TavariStyles.spacing.lg,
+      border: `1px solid ${TavariStyles.colors.gray200}`
+    },
+    
+    groupHeader: {
+      ...TavariStyles.layout.flexBetween,
+      marginBottom: TavariStyles.spacing.lg,
+      cursor: 'pointer'
+    },
+    
+    groupName: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800
+    },
+    
+    groupInfo: {
+      fontSize: TavariStyles.typography.fontSize.sm,
+      color: TavariStyles.colors.gray600,
+      marginBottom: TavariStyles.spacing.md
+    },
+    
+    actionButtons: {
+      display: 'flex',
+      gap: TavariStyles.spacing.sm
+    },
+    
+    smallButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.secondary,
+      ...TavariStyles.components.button.sizes.sm
+    },
 
-  if (loading) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.loading}>Loading modifiers...</div>
-      </div>
-    );
-  }
+    editButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.primary,
+      ...TavariStyles.components.button.sizes.sm
+    },
+    
+    deleteButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.danger,
+      ...TavariStyles.components.button.sizes.sm
+    },
+
+    expandButton: {
+      backgroundColor: 'transparent',
+      border: 'none',
+      fontSize: TavariStyles.typography.fontSize.lg,
+      cursor: 'pointer',
+      color: TavariStyles.colors.primary,
+      padding: TavariStyles.spacing.sm
+    },
+    
+    itemsList: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+      gap: TavariStyles.spacing.md,
+      marginTop: TavariStyles.spacing.lg,
+      padding: TavariStyles.spacing.md,
+      backgroundColor: TavariStyles.colors.gray50,
+      borderRadius: TavariStyles.borderRadius.md,
+      border: `1px solid ${TavariStyles.colors.gray200}`
+    },
+    
+    itemCard: {
+      padding: TavariStyles.spacing.md,
+      backgroundColor: TavariStyles.colors.white,
+      borderRadius: TavariStyles.borderRadius.md,
+      border: `1px solid ${TavariStyles.colors.gray200}`,
+      boxShadow: TavariStyles.shadows.sm
+    },
+    
+    itemName: {
+      fontSize: TavariStyles.typography.fontSize.base,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.xs
+    },
+    
+    itemDetails: {
+      fontSize: TavariStyles.typography.fontSize.sm,
+      color: TavariStyles.colors.gray600,
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    removeButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.danger,
+      ...TavariStyles.components.button.sizes.sm,
+      fontSize: TavariStyles.typography.fontSize.xs
+    },
+    
+    modal: {
+      ...TavariStyles.components.modal.overlay
+    },
+    
+    modalContent: {
+      ...TavariStyles.components.modal.content,
+      maxWidth: '600px'
+    },
+    
+    modalHeader: TavariStyles.components.modal.header,
+    modalBody: TavariStyles.components.modal.body,
+    modalFooter: TavariStyles.components.modal.footer,
+    
+    createInventoryButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.success,
+      ...TavariStyles.components.button.sizes.md,
+      marginTop: TavariStyles.spacing.md
+    },
+    
+    emptyState: {
+      textAlign: 'center',
+      padding: `${TavariStyles.spacing['6xl']} ${TavariStyles.spacing.xl}`,
+      color: TavariStyles.colors.gray500
+    },
+    
+    emptyIcon: {
+      fontSize: '48px',
+      marginBottom: TavariStyles.spacing.lg
+    },
+    
+    emptyTitle: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      marginBottom: TavariStyles.spacing.sm
+    },
+
+    noItems: {
+      textAlign: 'center',
+      padding: TavariStyles.spacing.lg,
+      color: TavariStyles.colors.gray500,
+      fontStyle: 'italic'
+    }
+  };
+
+  const loadingContent = (
+    <div style={styles.container}>
+      <div style={styles.loading}>Loading modifier management...</div>
+    </div>
+  );
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h2>POS Modifier Groups</h2>
-        <p>Create modifier groups with customizable rules and pricing</p>
-      </div>
-
-      {error && <div style={styles.errorBanner}>{error}</div>}
-
-      {/* Add New Modifier Group */}
-      <div style={styles.addSection}>
-        <h3 style={styles.sectionTitle}>Add New Modifier Group</h3>
-        <div style={styles.form}>
-          <div style={styles.formRow}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Group Name *</label>
-              <input
-                type="text"
-                placeholder="e.g., Size, Toppings, Drink Options"
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Category</label>
-              <select
-                value={newGroupCategoryId}
-                onChange={(e) => setNewGroupCategoryId(e.target.value)}
-                style={styles.select}
-              >
-                <option value="">All Categories</option>
-                {categories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={styles.formRow}>
-            <div style={styles.formGroup}>
-              <label style={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={newGroupRequired}
-                  onChange={(e) => setNewGroupRequired(e.target.checked)}
-                />
-                Required Group (Customer must select)
-              </label>
-            </div>
-          </div>
-
-          <div style={styles.formRow}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Minimum Selections</label>
-              <input
-                type="number"
-                placeholder="0 = no minimum"
-                value={newGroupMinSelections}
-                onChange={(e) => setNewGroupMinSelections(e.target.value)}
-                style={styles.input}
-                min="0"
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Maximum Selections</label>
-              <input
-                type="number"
-                placeholder="0 = unlimited"
-                value={newGroupMaxSelections}
-                onChange={(e) => setNewGroupMaxSelections(e.target.value)}
-                style={styles.input}
-                min="0"
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Maximum Free Items</label>
-              <input
-                type="number"
-                placeholder="0 = none free"
-                value={newGroupMaxFree}
-                onChange={(e) => setNewGroupMaxFree(e.target.value)}
-                style={styles.input}
-                min="0"
-              />
-            </div>
-          </div>
-
-          <button 
-            onClick={addModifierGroup} 
-            style={styles.addButton}
-            disabled={!newGroupName.trim()}
-          >
-            Add Modifier Group
-          </button>
+    <POSAuthWrapper
+      requiredRoles={['employee', 'manager', 'owner']}
+      requireBusiness={true}
+      componentName="POSModifiers"
+      loadingContent={loadingContent}
+    >
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <h2 style={styles.title}>POS Modifiers</h2>
+          <p style={styles.subtitle}>Create modifier groups and add items for customer customization</p>
         </div>
-      </div>
 
-      {/* Modifier Groups List */}
-      <div style={styles.groupsContainer}>
-        {modifierGroups.length === 0 ? (
+        {error && <div style={styles.errorBanner}>{error}</div>}
+
+        {/* Add New Modifier Group */}
+        <div style={styles.addSection}>
+          <h3 style={styles.sectionTitle}>Create New Modifier Group</h3>
+          <div style={styles.form}>
+            <div style={styles.formRow}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Group Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Size, Toppings, Drink Options"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            <div style={styles.formRow}>
+              <div style={styles.formGroup}>
+                <TavariCheckbox
+                  checked={newGroupRequired}
+                  onChange={(checked) => setNewGroupRequired(checked)}
+                  label="Required Group (Customer must select)"
+                  size="md"
+                />
+              </div>
+            </div>
+
+            <div style={styles.formRow}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Minimum Selections</label>
+                <input
+                  type="number"
+                  placeholder="0 = no minimum"
+                  value={newGroupMinSelections}
+                  onChange={(e) => setNewGroupMinSelections(e.target.value)}
+                  style={styles.input}
+                  min="0"
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Maximum Selections</label>
+                <input
+                  type="number"
+                  placeholder="0 = unlimited"
+                  value={newGroupMaxSelections}
+                  onChange={(e) => setNewGroupMaxSelections(e.target.value)}
+                  style={styles.input}
+                  min="0"
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Maximum Free Items</label>
+                <input
+                  type="number"
+                  placeholder="0 = none free"
+                  value={newGroupMaxFree}
+                  onChange={(e) => setNewGroupMaxFree(e.target.value)}
+                  style={styles.input}
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={addModifierGroup} 
+              style={styles.addButton}
+              disabled={!newGroupName.trim()}
+            >
+              Create Modifier Group
+            </button>
+          </div>
+        </div>
+
+        {/* Modifier Groups List */}
+        {loading ? (
+          <div style={styles.loading}>Loading modifier groups...</div>
+        ) : modifierGroups.length === 0 ? (
           <div style={styles.emptyState}>
-            <div style={styles.emptyIcon}>🏷️</div>
+            <div style={styles.emptyIcon}>📋</div>
             <div style={styles.emptyTitle}>No modifier groups found</div>
-            <div style={styles.emptyText}>Create your first modifier group above</div>
+            <div style={{ fontSize: TavariStyles.typography.fontSize.base }}>
+              Create your first modifier group above to get started
+            </div>
           </div>
         ) : (
-          modifierGroups.map((group, i) => (
+          modifierGroups.map(group => (
             <div key={group.id} style={styles.groupCard}>
-              <div style={styles.groupHeader}>
-                <div style={styles.groupInfo}>
-                  {editGroupId === group.id ? (
-                    <div style={styles.editGroupForm}>
-                      <input
-                        type="text"
-                        value={editGroupName}
-                        onChange={(e) => setEditGroupName(e.target.value)}
-                        style={styles.input}
-                        placeholder="Group name"
-                      />
-                      <select
-                        value={editGroupCategoryId}
-                        onChange={(e) => setEditGroupCategoryId(e.target.value)}
-                        style={styles.select}
-                      >
-                        <option value="">All Categories</option>
-                        {categories.map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.name}</option>
-                        ))}
-                      </select>
-                      <div style={styles.editOptions}>
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={editGroupRequired}
-                            onChange={(e) => setEditGroupRequired(e.target.checked)}
-                          />
-                          Required
-                        </label>
-                        <input
-                          type="number"
-                          placeholder="Min"
-                          value={editGroupMinSelections}
-                          onChange={(e) => setEditGroupMinSelections(e.target.value)}
-                          style={styles.smallInput}
-                          min="0"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Max"
-                          value={editGroupMaxSelections}
-                          onChange={(e) => setEditGroupMaxSelections(e.target.value)}
-                          style={styles.smallInput}
-                          min="0"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Free"
-                          value={editGroupMaxFree}
-                          onChange={(e) => setEditGroupMaxFree(e.target.value)}
-                          style={styles.smallInput}
-                          min="0"
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={styles.groupTitle}>
-                        {group.name}
-                        {group.is_required && <span style={styles.requiredBadge}>REQUIRED</span>}
-                      </div>
-                      <div style={styles.groupMeta}>
-                        Category: {getCategoryName(group.category_id)} | {getValidationSummary(group)}
-                      </div>
-                    </>
-                  )}
+              <div style={styles.groupHeader} onClick={() => toggleGroupExpanded(group.id)}>
+                <div>
+                  <div style={styles.groupName}>
+                    {group.name}
+                    <button style={styles.expandButton}>
+                      {expandedGroups.has(group.id) ? '−' : '+'}
+                    </button>
+                  </div>
+                  <div style={styles.groupInfo}>
+                    {group.is_required && 'Required • '}
+                    {group.min_selections > 0 && `Min: ${group.min_selections} • `}
+                    {group.max_selections > 0 && `Max: ${group.max_selections} • `}
+                    {group.max_free_items > 0 && `${group.max_free_items} free items • `}
+                    {group.pos_modifier_group_items?.length || 0} items
+                  </div>
                 </div>
-
-                <div style={styles.groupActions}>
-                  {editGroupId === group.id ? (
-                    <div style={styles.editActions}>
-                      <button onClick={saveEditGroup} style={styles.saveButton}>Save</button>
-                      <button onClick={cancelEditGroup} style={styles.cancelButton}>Cancel</button>
-                    </div>
-                  ) : (
-                    <div style={styles.actions}>
-                      <button
-                        onClick={() => moveGroup(group.id, -1)}
-                        disabled={i === 0}
-                        style={styles.orderButton}
-                        title="Move Up"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        onClick={() => moveGroup(group.id, 1)}
-                        disabled={i === modifierGroups.length - 1}
-                        style={styles.orderButton}
-                        title="Move Down"
-                      >
-                        ↓
-                      </button>
-                      <button onClick={() => startEditGroup(group)} style={styles.editButton}>
-                        Edit
-                      </button>
-                      <button 
-                        onClick={() => deleteModifierGroup(group.id, group.name)} 
-                        style={styles.deleteButton}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Group Items */}
-              <div style={styles.groupItems}>
-                <div style={styles.itemsHeader}>
-                  <span style={styles.itemsTitle}>Items in this group ({group.pos_modifier_group_items?.length || 0})</span>
+                <div style={styles.actionButtons}>
                   <button 
-                    onClick={() => setSelectedGroupId(selectedGroupId === group.id ? null : group.id)}
-                    style={styles.addItemButton}
+                    style={styles.editButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditModal(group);
+                    }}
                   >
-                    {selectedGroupId === group.id ? 'Cancel' : '+ Add Item'}
+                    Edit Group
+                  </button>
+                  <button 
+                    style={styles.smallButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedGroupId(group.id);
+                      setShowAddItemModal(true);
+                    }}
+                  >
+                    Add Items
+                  </button>
+                  <button 
+                    style={styles.deleteButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteModifierGroup(group.id, group.name);
+                    }}
+                  >
+                    Delete
                   </button>
                 </div>
+              </div>
 
-                {selectedGroupId === group.id && (
-                  <div style={styles.addItemForm}>
-                    <div style={styles.addItemRow}>
-                      <select
-                        value={newItemInventoryId}
-                        onChange={(e) => setNewItemInventoryId(e.target.value)}
-                        style={styles.select}
-                      >
-                        <option value="">Select inventory item...</option>
-                        {inventoryItems.map(item => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} (${item.price?.toFixed(2) || '0.00'})
-                          </option>
-                        ))}
-                      </select>
-                      
-                      <div style={styles.priceSection}>
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={newItemIsFree}
-                            onChange={(e) => setNewItemIsFree(e.target.checked)}
-                          />
-                          Free
-                        </label>
-                        {!newItemIsFree && (
-                          <input
-                            type="number"
-                            placeholder="Override price"
-                            value={newItemPrice}
-                            onChange={(e) => setNewItemPrice(e.target.value)}
-                            style={styles.priceInput}
-                            step="0.01"
-                            min="0"
-                          />
-                        )}
-                      </div>
-                      
-                      <label style={styles.checkboxLabel}>
-                        <input
-                          type="checkbox"
-                          checked={newItemDefaultSelected}
-                          onChange={(e) => setNewItemDefaultSelected(e.target.checked)}
-                        />
-                        Default
-                      </label>
-                      
-                      <button 
-                        onClick={addModifierItem}
-                        style={styles.addItemSubmitButton}
-                        disabled={!newItemInventoryId}
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div style={styles.itemsList}>
-                  {(!group.pos_modifier_group_items || group.pos_modifier_group_items.length === 0) ? (
-                    <div style={styles.emptyItems}>No items in this group</div>
-                  ) : (
-                    group.pos_modifier_group_items.map(item => (
-                      <div key={item.id} style={styles.itemRow}>
-                        <div style={styles.itemInfo}>
+              {/* Items in this group - shown when expanded */}
+              {expandedGroups.has(group.id) && (
+                <div>
+                  {group.pos_modifier_group_items && group.pos_modifier_group_items.length > 0 ? (
+                    <div style={styles.itemsList}>
+                      {group.pos_modifier_group_items.map(item => (
+                        <div key={item.id} style={styles.itemCard}>
                           <div style={styles.itemName}>
                             {item.pos_inventory?.name || 'Unknown Item'}
-                            {item.is_default_selected && <span style={styles.defaultBadge}>DEFAULT</span>}
                           </div>
-                          <div style={styles.itemPrice}>
-                            {item.is_free ? (
-                              <span style={styles.freeLabel}>FREE</span>
-                            ) : (
-                              `$${(item.price_override ?? item.pos_inventory?.price ?? 0).toFixed(2)}`
-                            )}
+                          <div style={styles.itemDetails}>
+                            Price: {item.is_free ? 'Free' : 
+                             item.price_override !== null ? `$${Number(item.price_override).toFixed(2)}` :
+                             `$${Number(item.pos_inventory?.price || 0).toFixed(2)}`}
+                            <br />
+                            Cost: ${Number(item.pos_inventory?.cost || 0).toFixed(2)}
                           </div>
+                          <button
+                            style={styles.removeButton}
+                            onClick={() => removeItemFromGroup(item.id, item.pos_inventory?.name)}
+                          >
+                            Remove from Group
+                          </button>
                         </div>
-                        <button
-                          onClick={() => removeModifierItem(
-                            item.id, 
-                            item.pos_inventory?.name || 'Unknown Item',
-                            group.name
-                          )}
-                          style={styles.removeItemButton}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.noItems}>
+                      No items in this group. Click "Add Items" to add some.
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
             </div>
           ))
         )}
-      </div>
-    </div>
-  );
-};
 
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    backgroundColor: '#f8f9fa',
-    padding: '20px',
-    paddingTop: '100px',
-    boxSizing: 'border-box'
-  },
-  header: {
-    marginBottom: '30px',
-    textAlign: 'center'
-  },
-  errorBanner: {
-    backgroundColor: '#fee2e2',
-    color: '#dc2626',
-    padding: '15px',
-    borderRadius: '8px',
-    marginBottom: '20px',
-    fontWeight: 'bold'
-  },
-  error: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#dc2626'
-  },
-  loading: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#6b7280'
-  },
-  addSection: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '20px',
-    marginBottom: '30px',
-    border: '2px solid #008080'
-  },
-  sectionTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '20px',
-    paddingBottom: '10px',
-    borderBottom: '2px solid #008080'
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px'
-  },
-  formRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '15px',
-    alignItems: 'end'
-  },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  label: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    marginBottom: '6px'
-  },
-  checkboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    cursor: 'pointer',
-    marginBottom: '6px'
-  },
-  input: {
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px'
-  },
-  smallInput: {
-    padding: '8px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '14px',
-    width: '80px'
-  },
-  select: {
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px',
-    backgroundColor: 'white'
-  },
-  addButton: {
-    padding: '15px 20px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    alignSelf: 'flex-start'
-  },
-  groupsContainer: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px',
-    overflowY: 'auto'
-  },
-  emptyState: {
-    textAlign: 'center',
-    padding: '60px 20px',
-    color: '#6b7280'
-  },
-  emptyIcon: {
-    fontSize: '48px',
-    marginBottom: '15px'
-  },
-  emptyTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    marginBottom: '8px'
-  },
-  emptyText: {
-    fontSize: '14px'
-  },
-  groupCard: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb',
-    overflow: 'hidden'
-  },
-  groupHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '20px',
-    backgroundColor: '#f9fafb',
-    borderBottom: '1px solid #e5e7eb'
-  },
-  groupInfo: {
-    flex: 1
-  },
-  groupTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    marginBottom: '6px'
-  },
-  requiredBadge: {
-    fontSize: '10px',
-    backgroundColor: '#dc2626',
-    color: 'white',
-    padding: '2px 8px',
-    borderRadius: '4px',
-    fontWeight: 'bold'
-  },
-  groupMeta: {
-    fontSize: '14px',
-    color: '#6b7280'
-  },
-  editGroupForm: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px'
-  },
-  editOptions: {
-    display: 'flex',
-    gap: '10px',
-    alignItems: 'center',
-    flexWrap: 'wrap'
-  },
-  groupActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px'
-  },
-  actions: {
-    display: 'flex',
-    gap: '6px'
-  },
-  editActions: {
-    display: 'flex',
-    gap: '6px'
-  },
-  orderButton: {
-    width: '32px',
-    height: '32px',
-    backgroundColor: '#f3f4f6',
-    border: '1px solid #d1d5db',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  editButton: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    border: 'none',
-    padding: '8px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  deleteButton: {
-    backgroundColor: '#dc2626',
-    color: 'white',
-    border: 'none',
-    padding: '8px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  saveButton: {
-    backgroundColor: '#059669',
-    color: 'white',
-    border: 'none',
-    padding: '8px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  cancelButton: {
-    backgroundColor: '#6b7280',
-    color: 'white',
-    border: 'none',
-    padding: '8px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  groupItems: {
-    padding: '20px'
-  },
-  itemsHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '15px'
-  },
-  itemsTitle: {
-    fontSize: '16px',
-    fontWeight: 'bold',
-    color: '#1f2937'
-  },
-  addItemButton: {
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    padding: '8px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 'bold'
-  },
-  addItemForm: {
-    backgroundColor: '#f9fafb',
-    padding: '15px',
-    borderRadius: '6px',
-    marginBottom: '15px',
-    border: '1px solid #e5e7eb'
-  },
-  addItemRow: {
-    display: 'flex',
-    gap: '12px',
-    alignItems: 'end',
-    flexWrap: 'wrap'
-  },
-  priceSection: {
-    display: 'flex',
-    gap: '8px',
-    alignItems: 'center'
-  },
-  priceInput: {
-    padding: '8px',
-    border: '2px solid #d1d5db',
-    borderRadius: '4px',
-    width: '100px',
-    fontSize: '14px'
-  },
-  addItemSubmitButton: {
-    backgroundColor: '#059669',
-    color: 'white',
-    border: 'none',
-    padding: '8px 16px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 'bold'
-  },
-  itemsList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px'
-  },
-  emptyItems: {
-    textAlign: 'center',
-    color: '#6b7280',
-    fontStyle: 'italic',
-    padding: '20px'
-  },
-  itemRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '12px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '6px',
-    border: '1px solid #e5e7eb'
-  },
-  itemInfo: {
-    flex: 1,
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  itemName: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#1f2937',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px'
-  },
-  defaultBadge: {
-    fontSize: '10px',
-    backgroundColor: '#059669',
-    color: 'white',
-    padding: '2px 6px',
-    borderRadius: '4px',
-    fontWeight: 'bold'
-  },
-  itemPrice: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#1f2937'
-  },
-  freeLabel: {
-    color: '#059669',
-    fontWeight: 'bold'
-  },
-  removeItemButton: {
-    backgroundColor: '#dc2626',
-    color: 'white',
-    border: 'none',
-    padding: '6px 10px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold',
-    marginLeft: '12px'
-  }
+        {/* Edit Group Modal */}
+        {showEditModal && (
+          <div style={styles.modal}>
+            <div style={styles.modalContent}>
+              <div style={styles.modalHeader}>
+                <h3 style={{ margin: 0 }}>Edit Modifier Group</h3>
+                <button 
+                  style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditGroupId(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div style={styles.modalBody}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Group Name *</label>
+                  <input
+                    type="text"
+                    value={editGroupName}
+                    onChange={(e) => setEditGroupName(e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <TavariCheckbox
+                    checked={editGroupRequired}
+                    onChange={(checked) => setEditGroupRequired(checked)}
+                    label="Required Group (Customer must select)"
+                    size="md"
+                  />
+                </div>
+
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Minimum Selections</label>
+                    <input
+                      type="number"
+                      value={editGroupMinSelections}
+                      onChange={(e) => setEditGroupMinSelections(e.target.value)}
+                      style={styles.input}
+                      min="0"
+                    />
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Maximum Selections</label>
+                    <input
+                      type="number"
+                      value={editGroupMaxSelections}
+                      onChange={(e) => setEditGroupMaxSelections(e.target.value)}
+                      style={styles.input}
+                      min="0"
+                    />
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Maximum Free Items</label>
+                    <input
+                      type="number"
+                      value={editGroupMaxFree}
+                      onChange={(e) => setEditGroupMaxFree(e.target.value)}
+                      style={styles.input}
+                      min="0"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.modalFooter}>
+                <button
+                  style={TavariStyles.components.button.variants.secondary}
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditGroupId(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  style={TavariStyles.components.button.variants.primary}
+                  onClick={updateModifierGroup}
+                  disabled={!editGroupName.trim()}
+                >
+                  Update Group
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Item Modal */}
+        {showAddItemModal && (
+          <div style={styles.modal}>
+            <div style={styles.modalContent}>
+              <div style={styles.modalHeader}>
+                <h3 style={{ margin: 0 }}>Add Item to Modifier Group</h3>
+                <button 
+                  style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}
+                  onClick={() => {
+                    setShowAddItemModal(false);
+                    setSelectedGroupId(null);
+                    setSelectedInventoryId('');
+                    setPriceOverride('');
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div style={styles.modalBody}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Select Inventory Item *</label>
+                  <select
+                    value={selectedInventoryId}
+                    onChange={(e) => setSelectedInventoryId(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="">-- Select Item --</option>
+                    {inventoryItems.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} - ${Number(item.price).toFixed(2)} (Cost: ${Number(item.cost || 0).toFixed(2)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  style={styles.createInventoryButton}
+                  onClick={() => setShowInventoryModal(true)}
+                >
+                  + Create New Inventory Item (Auto-adds to group)
+                </button>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Price Override (optional)</label>
+                  <input
+                    type="number"
+                    placeholder="Leave blank to use item price"
+                    value={priceOverride}
+                    onChange={(e) => setPriceOverride(e.target.value)}
+                    style={styles.input}
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+              </div>
+
+              <div style={styles.modalFooter}>
+                <button
+                  style={TavariStyles.components.button.variants.secondary}
+                  onClick={() => {
+                    setShowAddItemModal(false);
+                    setSelectedGroupId(null);
+                    setSelectedInventoryId('');
+                    setPriceOverride('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  style={TavariStyles.components.button.variants.primary}
+                  onClick={addItemToGroup}
+                  disabled={!selectedInventoryId}
+                >
+                  Add Item
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Create Inventory Item Modal */}
+        {showInventoryModal && (
+          <div style={styles.modal}>
+            <div style={styles.modalContent}>
+              <div style={styles.modalHeader}>
+                <h3 style={{ margin: 0 }}>Create New Inventory Item</h3>
+                <button 
+                  style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}
+                  onClick={() => {
+                    setShowInventoryModal(false);
+                    setNewInventoryName('');
+                    setNewInventoryPrice('');
+                    setNewInventoryCost('');
+                    setNewInventorySKU('');
+                    setNewInventoryCategory('');
+                    setNewInventoryTrackStock(false);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div style={styles.modalBody}>
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Item Name *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Small, Large, Extra Cheese"
+                      value={newInventoryName}
+                      onChange={(e) => setNewInventoryName(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Price *</label>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      value={newInventoryPrice}
+                      onChange={(e) => setNewInventoryPrice(e.target.value)}
+                      style={styles.input}
+                      step="0.01"
+                      min="0"
+                    />
+                  </div>
+                </div>
+
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Cost</label>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      value={newInventoryCost}
+                      onChange={(e) => setNewInventoryCost(e.target.value)}
+                      style={styles.input}
+                      step="0.01"
+                      min="0"
+                    />
+                  </div>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>SKU</label>
+                    <input
+                      type="text"
+                      placeholder="Optional"
+                      value={newInventorySKU}
+                      onChange={(e) => setNewInventorySKU(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Category</label>
+                    <select
+                      value={newInventoryCategory}
+                      onChange={(e) => setNewInventoryCategory(e.target.value)}
+                      style={styles.select}
+                    >
+                      <option value="">-- Select Category --</option>
+                      {categories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={styles.formGroup}>
+                    <TavariCheckbox
+                      checked={newInventoryTrackStock}
+                      onChange={(checked) => setNewInventoryTrackStock(checked)}
+                      label="Track Stock"
+                      size="md"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.modalFooter}>
+                <button
+                  style={TavariStyles.components.button.variants.secondary}
+                  onClick={() => {
+                    setShowInventoryModal(false);
+                    setNewInventoryName('');
+                    setNewInventoryPrice('');
+                    setNewInventoryCost('');
+                    setNewInventorySKU('');
+                    setNewInventoryCategory('');
+                    setNewInventoryTrackStock(false);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  style={TavariStyles.components.button.variants.primary}
+                  onClick={createInventoryItem}
+                  disabled={!newInventoryName.trim() || !newInventoryPrice}
+                >
+                  Create & Add to Group
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </POSAuthWrapper>
+  );
 };
 
 export default POSModifiers;

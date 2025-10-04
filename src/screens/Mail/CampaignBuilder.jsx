@@ -1,8 +1,9 @@
-// CampaignBuilder.jsx - Full Featured Email Campaign Builder (FIXED)
+// CampaignBuilder.jsx - Full Featured Email Campaign Builder with Pause Protection
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
+import EmailPauseBanner, { blockEmailSendIfPaused } from '../../components/EmailPauseBanner';
 
 import {
   FiSave, FiSend, FiEye, FiSmartphone, FiMonitor, FiFileText, FiDollarSign,
@@ -541,6 +542,9 @@ const CampaignBuilder = () => {
   };
 
   const handleSend = async () => {
+    // Block sending if paused
+    if (blockEmailSendIfPaused('Campaign sending')) return;
+
     const errors = validateCampaign();
     if (errors.length > 0) {
       setMessage('Please fix these issues before sending:\n• ' + errors.join('\n• '));
@@ -1021,6 +1025,9 @@ const CampaignBuilder = () => {
 
   return (
     <div style={styles.container}>
+      {/* Email Pause Banner */}
+      <EmailPauseBanner />
+
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.titleSection}>

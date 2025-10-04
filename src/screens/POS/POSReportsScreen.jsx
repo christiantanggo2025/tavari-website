@@ -1,22 +1,122 @@
 // src/screens/POS/POSReportsScreen.jsx
-// Steps 115-120: Comprehensive POS reporting system with filtering, exports, and analytics
+// Fixed version - removed redundant POSAuthWrapper
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { useBusiness } from '../../contexts/BusinessContext';
 import { logAction } from '../../helpers/posAudit';
+import { usePOSAuth } from '../../hooks/usePOSAuth';
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
+import TavariCheckbox from '../../components/UI/TavariCheckbox';
+import { TavariStyles } from '../../utils/TavariStyles';
+
+// Import report components
+import SalesSummaryReport from '../../components/Reports/SalesSummaryReport';
+import PaymentMethodsReport from '../../components/Reports/PaymentMethodsReport';
+import CashDrawerReport from '../../components/Reports/CashDrawerReport';
+import HourlySalesReport from '../../components/Reports/HourlySalesReport';
+import TaxComplianceReport from '../../components/Reports/TaxComplianceReport';
+import EndOfPeriodSalesReport from '../../components/Reports/EndOfPeriodSalesReport';
+import RefundsVoidsReport from '../../components/Reports/RefundsVoidsReport';
+import DiscountUsageReport from '../../components/Reports/DiscountUsageReport';
+import TopItemsReport from '../../components/Reports/TopItemsReport';
+import CategoryPerformanceReport from '../../components/Reports/CategoryPerformanceReport';
+import LowStockReport from '../../components/Reports/LowStockReport';
+import ProductMixReport from '../../components/Reports/ProductMixReport';
+import EmployeePerformanceReport from '../../components/Reports/EmployeePerformanceReport';
+import LaborCostAnalysisReport from '../../components/Reports/LaborCostAnalysisReport';
+import ShiftPerformanceReport from '../../components/Reports/ShiftPerformanceReport';
+import LoyaltyProgramReport from '../../components/Reports/LoyaltyProgramReport';
+import CustomerTransactionHistoryReport from '../../components/Reports/CustomerTransactionHistoryReport';
+import AverageCustomerValueReport from '../../components/Reports/AverageCustomerValueReport';
+import YearOverYearComparisonReport from '../../components/Reports/YearOverYearComparisonReport';
+import ProfitMarginAnalysisReport from '../../components/Reports/ProfitMarginAnalysisReport';
+import PromotionalEffectivenessReport from '../../components/Reports/PromotionalEffectivenessReport';
 
 const POSReportsScreen = () => {
-  const { business } = useBusiness();
-  const businessId = business?.id;
+  // Authentication and business context - use hook directly without wrapper
+  const auth = usePOSAuth({
+    requiredRoles: ['employee', 'manager', 'owner'],
+    requireBusiness: true,
+    componentName: 'POS Reports Screen'
+  });
+
+  const {
+    calculateTotalTax,
+    formatTaxAmount,
+    getTaxSummary,
+    applyCashRounding,
+    loading: taxLoading,
+    error: taxError
+  } = useTaxCalculations(auth.selectedBusinessId);
+
+  // Available report types with their components
+  const REPORT_COMPONENTS = {
+    'sales-summary': SalesSummaryReport,
+    'payment-methods': PaymentMethodsReport,
+    'cash-drawer': CashDrawerReport,
+    'hourly-breakdown': HourlySalesReport,
+    'tax-report': TaxComplianceReport,
+    'end-period': EndOfPeriodSalesReport,
+    'refunds-voids': RefundsVoidsReport,
+    'discount-usage': DiscountUsageReport,
+    'top-items': TopItemsReport,
+    'category-performance': CategoryPerformanceReport,
+    'low-stock': LowStockReport,
+    'product-mix': ProductMixReport,
+    'employee-performance': EmployeePerformanceReport,
+    'labor-analysis': LaborCostAnalysisReport,
+    'shift-reports': ShiftPerformanceReport,
+    'loyalty-program': LoyaltyProgramReport,
+    'customer-history': CustomerTransactionHistoryReport,
+    'customer-value': AverageCustomerValueReport,
+    'year-comparison': YearOverYearComparisonReport,
+    'profit-margin': ProfitMarginAnalysisReport,	
+    'promotional-effectiveness': PromotionalEffectivenessReport,
+  };
+
+  const REPORT_NAMES = {
+    'sales-summary': 'Daily Sales Summary',
+    'payment-methods': 'Payment Method Analysis',
+    'cash-drawer': 'Cash Drawer Reconciliation',
+    'hourly-breakdown': 'Hourly Sales Breakdown',
+    'tax-report': 'Tax Compliance Report',
+    'end-period': 'End-of-Period Sales',
+    'refunds-voids': 'Refunds & Voids Report',
+    'discount-usage': 'Discount Usage Report',
+    'top-items': 'Top/Bottom Selling Items',
+    'category-performance': 'Category Performance',
+    'low-stock': 'Low Stock Alerts',
+    'product-mix': 'Product Mix Analysis',
+    'employee-performance': 'Employee Sales Performance',
+    'labor-analysis': 'Labor Cost Analysis',
+    'shift-reports': 'Shift Performance Reports',
+    'loyalty-program': 'Loyalty Program Report',
+    'customer-history': 'Customer Transaction History',
+    'customer-value': 'Average Customer Value',
+    'year-comparison': 'Year-over-Year Comparison',
+    'profit-margin': 'Profit Margin Analysis',
+    'promotional-effectiveness': 'Promotional Effectiveness'
+  };
 
   const [reportData, setReportData] = useState({
     salesTotals: 0,
     refundTotals: 0,
     netSales: 0,
-    terminalCashVariances: [],
     paymentBreakdown: [],
     topItems: [],
-    employeeStats: []
+    employeeStats: [],
+    taxBreakdown: {
+      totalTax: 0,
+      aggregatedTaxes: {},
+      aggregatedRebates: {}
+    },
+    setupStats: {
+      inventoryCount: 0,
+      categoriesCount: 0,
+      modifiersCount: 0,
+      discountsCount: 0,
+      stationsCount: 0
+    },
+    rawData: null
   });
   
   const [loading, setLoading] = useState(false);
@@ -24,77 +124,48 @@ const POSReportsScreen = () => {
   const [dateRange, setDateRange] = useState('today');
   const [customDateStart, setCustomDateStart] = useState('');
   const [customDateEnd, setCustomDateEnd] = useState('');
-  const [viewBy, setViewBy] = useState('date'); // date, employee, terminal, item, category
   const [selectedEmployee, setSelectedEmployee] = useState('all');
-  const [selectedTerminal, setSelectedTerminal] = useState('all');
-  const [selectedCategory, setSelectedCategory] = useState('all');
   const [compareToLastYear, setCompareToLastYear] = useState(false);
+  const [includeTaxBreakdown, setIncludeTaxBreakdown] = useState(true);
+  const [selectedReport, setSelectedReport] = useState('sales-summary');
   
   const [employees, setEmployees] = useState([]);
-  const [terminals, setTerminals] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [exportFormat, setExportFormat] = useState('csv');
 
   useEffect(() => {
-    if (businessId) {
+    if (auth.selectedBusinessId && auth.isReady) {
       loadEmployees();
-      loadTerminals();
-      loadCategories();
       generateReport();
     }
-  }, [businessId]);
+  }, [auth.selectedBusinessId, auth.isReady]);
 
   useEffect(() => {
-    if (businessId) {
+    if (auth.selectedBusinessId && auth.isReady) {
       generateReport();
     }
-  }, [dateRange, customDateStart, customDateEnd, viewBy, selectedEmployee, selectedTerminal, selectedCategory, compareToLastYear]);
+  }, [dateRange, customDateStart, customDateEnd, selectedEmployee, compareToLastYear, includeTaxBreakdown, auth.selectedBusinessId, auth.isReady]);
 
   const loadEmployees = async () => {
     try {
       const { data, error } = await supabase
-        .from('users')
-        .select('id, full_name, email')
-        .eq('business_id', businessId)
-        .order('full_name');
+        .from('user_roles')
+        .select(`
+          user_id,
+          users!inner(id, email, first_name, last_name)
+        `)
+        .eq('business_id', auth.selectedBusinessId)
+        .eq('active', true);
       
       if (error) throw error;
-      setEmployees(data || []);
+      
+      const employeeList = data?.map(role => ({
+        id: role.user_id,
+        full_name: `${role.users.first_name || ''} ${role.users.last_name || ''}`.trim() || role.users.email,
+        email: role.users.email
+      })) || [];
+      
+      setEmployees(employeeList);
     } catch (err) {
       console.error('Error loading employees:', err);
-    }
-  };
-
-  const loadTerminals = async () => {
-    try {
-      // Get unique terminal IDs from sales
-      const { data, error } = await supabase
-        .from('pos_sales')
-        .select('terminal_id')
-        .eq('business_id', businessId)
-        .not('terminal_id', 'is', null);
-      
-      if (error) throw error;
-      
-      const uniqueTerminals = [...new Set(data.map(sale => sale.terminal_id))].filter(Boolean);
-      setTerminals(uniqueTerminals.map(id => ({ id, name: `Terminal ${id}` })));
-    } catch (err) {
-      console.error('Error loading terminals:', err);
-    }
-  };
-
-  const loadCategories = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('pos_categories')
-        .select('id, name')
-        .eq('business_id', businessId)
-        .order('name');
-      
-      if (error) throw error;
-      setCategories(data || []);
-    } catch (err) {
-      console.error('Error loading categories:', err);
     }
   };
 
@@ -143,24 +214,24 @@ const POSReportsScreen = () => {
   };
 
   const generateReport = async () => {
+    if (!auth.selectedBusinessId || !auth.isReady) return;
+
     try {
       setLoading(true);
       setError(null);
 
       const { start, end } = getDateFilter();
       
-      // Build query filters
+      // Build sales query
       let salesQuery = supabase
         .from('pos_sales')
         .select(`
-          id, subtotal, tax, discount, loyalty_discount, total, created_at, user_id, terminal_id,
+          id, subtotal, tax, discount, loyalty_discount, total, created_at, user_id, payment_status,
           pos_sale_items (
-            id, inventory_id, name, quantity, unit_price, total_price, pos_inventory (category_id)
-          ),
-          pos_payments (payment_method, amount)
+            id, inventory_id, name, quantity, unit_price, total_price, category_id
+          )
         `)
-        .eq('business_id', businessId)
-        .eq('payment_status', 'completed')
+        .eq('business_id', auth.selectedBusinessId)
         .gte('created_at', start)
         .lt('created_at', end);
 
@@ -168,18 +239,17 @@ const POSReportsScreen = () => {
         salesQuery = salesQuery.eq('user_id', selectedEmployee);
       }
 
-      if (selectedTerminal !== 'all') {
-        salesQuery = salesQuery.eq('terminal_id', selectedTerminal);
-      }
-
       const { data: sales, error: salesError } = await salesQuery;
       if (salesError) throw salesError;
 
-      // Get refunds for the same period
+      // Filter only completed sales for calculations
+      const completedSales = sales?.filter(sale => sale.payment_status === 'paid' || sale.payment_status === 'completed') || [];
+
+      // Get refunds
       let refundsQuery = supabase
         .from('pos_refunds')
-        .select('total_refunded, created_at, refunded_by')
-        .eq('business_id', businessId)
+        .select('total_refund_amount, created_at, refunded_by')
+        .eq('business_id', auth.selectedBusinessId)
         .gte('created_at', start)
         .lt('created_at', end);
 
@@ -190,30 +260,43 @@ const POSReportsScreen = () => {
       const { data: refunds, error: refundsError } = await refundsQuery;
       if (refundsError) throw refundsError;
 
-      // Get drawer variances
-      const { data: drawers, error: drawersError } = await supabase
-        .from('pos_drawers')
-        .select('*')
-        .eq('business_id', businessId)
-        .gte('opened_at', start)
-        .lt('opened_at', end);
+      // Get payments
+      const { data: payments, error: paymentsError } = await supabase
+        .from('pos_payments')
+        .select('payment_method, amount, sale_id')
+        .eq('business_id', auth.selectedBusinessId)
+        .in('sale_id', completedSales?.map(s => s.id) || []);
 
-      if (drawersError) throw drawersError;
+      if (paymentsError) throw paymentsError;
 
-      // Calculate basic totals
-      const salesTotals = sales.reduce((sum, sale) => sum + (sale.total || 0), 0);
-      const refundTotals = refunds.reduce((sum, refund) => sum + (refund.total_refunded || 0), 0);
+      // Get setup statistics
+      const [inventoryResult, categoriesResult, modifiersResult, discountsResult, stationsResult] = await Promise.all([
+        supabase.from('pos_inventory').select('id').eq('business_id', auth.selectedBusinessId),
+        supabase.from('pos_categories').select('id, is_active').eq('business_id', auth.selectedBusinessId),
+        supabase.from('pos_modifier_groups').select('id, is_active').eq('business_id', auth.selectedBusinessId),
+        supabase.from('pos_discounts').select('id').eq('business_id', auth.selectedBusinessId),
+        supabase.from('pos_stations').select('id, is_active').eq('business_id', auth.selectedBusinessId)
+      ]);
+
+      // Calculate totals
+      const salesTotals = completedSales?.reduce((sum, sale) => sum + (Number(sale.total) || 0), 0) || 0;
+      const refundTotals = refunds?.reduce((sum, refund) => sum + (Number(refund.total_refund_amount) || 0), 0) || 0;
       const netSales = salesTotals - refundTotals;
+
+      // Calculate tax breakdown
+      let taxBreakdown = { totalTax: 0, aggregatedTaxes: {}, aggregatedRebates: {} };
+      
+      if (includeTaxBreakdown && completedSales?.length > 0) {
+        const totalTaxFromSales = completedSales.reduce((sum, sale) => sum + (Number(sale.tax) || 0), 0);
+        const totalTaxFromRefunds = refunds?.reduce((sum, refund) => sum + (Number(refund.tax_refunded) || 0), 0) || 0;
+        taxBreakdown.totalTax = totalTaxFromSales - totalTaxFromRefunds;
+      }
 
       // Calculate payment breakdown
       const paymentMethodTotals = {};
-      sales.forEach(sale => {
-        if (sale.pos_payments) {
-          sale.pos_payments.forEach(payment => {
-            const method = payment.payment_method || 'unknown';
-            paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + (payment.amount || 0);
-          });
-        }
+      payments?.forEach(payment => {
+        const method = payment.payment_method || 'unknown';
+        paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + (Number(payment.amount) || 0);
       });
 
       const paymentBreakdown = Object.entries(paymentMethodTotals).map(([method, amount]) => ({
@@ -224,17 +307,15 @@ const POSReportsScreen = () => {
 
       // Calculate top items
       const itemTotals = {};
-      sales.forEach(sale => {
+      completedSales?.forEach(sale => {
         if (sale.pos_sale_items) {
           sale.pos_sale_items.forEach(item => {
-            if (selectedCategory === 'all' || item.pos_inventory?.category_id === selectedCategory) {
-              const key = item.name;
-              if (!itemTotals[key]) {
-                itemTotals[key] = { name: key, quantity: 0, revenue: 0 };
-              }
-              itemTotals[key].quantity += item.quantity || 0;
-              itemTotals[key].revenue += item.total_price || 0;
+            const key = item.name;
+            if (!itemTotals[key]) {
+              itemTotals[key] = { name: key, quantity: 0, revenue: 0 };
             }
+            itemTotals[key].quantity += Number(item.quantity) || 0;
+            itemTotals[key].revenue += Number(item.total_price) || 0;
           });
         }
       });
@@ -245,7 +326,7 @@ const POSReportsScreen = () => {
 
       // Calculate employee stats
       const employeeStats = {};
-      sales.forEach(sale => {
+      completedSales?.forEach(sale => {
         const userId = sale.user_id;
         if (!employeeStats[userId]) {
           const employee = employees.find(e => e.id === userId);
@@ -258,19 +339,10 @@ const POSReportsScreen = () => {
           };
         }
         employeeStats[userId].transactions += 1;
-        employeeStats[userId].revenue += sale.total || 0;
+        employeeStats[userId].revenue += Number(sale.total) || 0;
       });
 
-      // Calculate terminal cash variances
-      const terminalCashVariances = drawers.map(drawer => ({
-        terminal_id: drawer.terminal_id,
-        expected: drawer.expected_cash || 0,
-        actual: drawer.actual_cash || 0,
-        variance: (drawer.actual_cash || 0) - (drawer.expected_cash || 0),
-        date: drawer.opened_at
-      }));
-
-      // Get comparison data if enabled
+      // Get comparison data
       let comparisonData = null;
       if (compareToLastYear) {
         const lastYearStart = new Date(start);
@@ -281,12 +353,12 @@ const POSReportsScreen = () => {
         const { data: lastYearSales } = await supabase
           .from('pos_sales')
           .select('total')
-          .eq('business_id', businessId)
-          .eq('payment_status', 'completed')
+          .eq('business_id', auth.selectedBusinessId)
+          .in('payment_status', ['paid', 'completed'])
           .gte('created_at', lastYearStart.toISOString())
           .lt('created_at', lastYearEnd.toISOString());
 
-        const lastYearTotal = lastYearSales?.reduce((sum, sale) => sum + (sale.total || 0), 0) || 0;
+        const lastYearTotal = lastYearSales?.reduce((sum, sale) => sum + (Number(sale.total) || 0), 0) || 0;
         
         comparisonData = {
           lastYearSales: lastYearTotal,
@@ -299,13 +371,28 @@ const POSReportsScreen = () => {
         salesTotals,
         refundTotals,
         netSales,
-        terminalCashVariances,
         paymentBreakdown,
         topItems,
         employeeStats: Object.values(employeeStats).sort((a, b) => b.revenue - a.revenue),
         comparisonData,
-        totalTransactions: sales.length,
-        avgTransaction: sales.length > 0 ? (salesTotals / sales.length) : 0
+        totalTransactions: completedSales?.length || 0,
+        avgTransaction: completedSales?.length > 0 ? (salesTotals / completedSales.length) : 0,
+        taxBreakdown,
+        setupStats: {
+          inventoryCount: inventoryResult.data?.length || 0,
+          categoriesCount: categoriesResult.data?.length || 0,
+          modifiersCount: modifiersResult.data?.length || 0,
+          discountsCount: discountsResult.data?.length || 0,
+          stationsCount: stationsResult.data?.length || 0,
+          activeCategories: categoriesResult.data?.filter(c => c.is_active !== false).length || 0,
+          activeModifiers: modifiersResult.data?.filter(m => m.is_active !== false).length || 0,
+          activeStations: stationsResult.data?.filter(s => s.is_active !== false).length || 0
+        },
+        rawData: {
+          sales: completedSales,
+          refunds,
+          payments
+        }
       });
 
       await logAction({
@@ -313,10 +400,11 @@ const POSReportsScreen = () => {
         context: 'POSReportsScreen',
         metadata: {
           date_range: dateRange,
-          view_by: viewBy,
           total_sales: salesTotals,
           net_sales: netSales,
-          transactions_count: sales.length
+          transactions_count: completedSales?.length || 0,
+          selected_report: selectedReport,
+          business_id: auth.selectedBusinessId
         }
       });
 
@@ -328,89 +416,192 @@ const POSReportsScreen = () => {
     }
   };
 
-  const exportReport = async () => {
-    try {
-      const { start, end } = getDateFilter();
-      const fileName = `pos-report-${dateRange}-${new Date().toISOString().split('T')[0]}`;
-      
-      if (exportFormat === 'csv') {
-        let csvContent = "data:text/csv;charset=utf-8,";
-        
-        // Summary section
-        csvContent += "POS Report Summary\n";
-        csvContent += `Period,${start.split('T')[0]} to ${end.split('T')[0]}\n`;
-        csvContent += `Total Sales,${reportData.salesTotals.toFixed(2)}\n`;
-        csvContent += `Total Refunds,${reportData.refundTotals.toFixed(2)}\n`;
-        csvContent += `Net Sales,${reportData.netSales.toFixed(2)}\n`;
-        csvContent += `Total Transactions,${reportData.totalTransactions}\n`;
-        csvContent += `Average Transaction,${reportData.avgTransaction.toFixed(2)}\n\n`;
-
-        // Payment breakdown
-        csvContent += "Payment Method Breakdown\n";
-        csvContent += "Method,Amount,Percentage\n";
-        reportData.paymentBreakdown.forEach(payment => {
-          csvContent += `${payment.method},${payment.amount.toFixed(2)},${payment.percentage.toFixed(1)}%\n`;
-        });
-        csvContent += "\n";
-
-        // Top items
-        csvContent += "Top Selling Items\n";
-        csvContent += "Item,Quantity,Revenue\n";
-        reportData.topItems.forEach(item => {
-          csvContent += `${item.name},${item.quantity},${item.revenue.toFixed(2)}\n`;
-        });
-        csvContent += "\n";
-
-        // Employee stats
-        csvContent += "Employee Performance\n";
-        csvContent += "Employee,Transactions,Revenue\n";
-        reportData.employeeStats.forEach(emp => {
-          csvContent += `${emp.name},${emp.transactions},${emp.revenue.toFixed(2)}\n`;
-        });
-
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", fileName + ".csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-      } else if (exportFormat === 'pdf') {
-        // For PDF export, we would integrate with a PDF generation library
-        alert('PDF export functionality will be implemented with a PDF library');
-      }
-
-      await logAction({
-        action: 'pos_report_exported',
-        context: 'POSReportsScreen',
-        metadata: {
-          format: exportFormat,
-          file_name: fileName,
-          date_range: dateRange
-        }
-      });
-
-    } catch (err) {
-      console.error('Error exporting report:', err);
-      setError('Failed to export report: ' + err.message);
+  // Handle export from report components
+  const handleExport = (content, format, reportType) => {
+    const fileName = `${reportType}-${dateRange}-${new Date().toISOString().split('T')[0]}`;
+    
+    if (format === 'csv' || format === 'excel') {
+      const encodedUri = encodeURI(content);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", fileName + (format === 'csv' ? '.csv' : '.xlsx'));
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else if (format === 'pdf') {
+      // PDF export would be implemented here
+      alert('PDF export functionality will be implemented with a PDF library');
     }
+
+    logAction({
+      action: 'pos_report_exported',
+      context: 'POSReportsScreen',
+      metadata: {
+        format,
+        report_type: reportType,
+        file_name: fileName,
+        date_range: dateRange,
+        business_id: auth.selectedBusinessId
+      }
+    });
+  };
+
+  // Handle email from report components
+  const handleEmail = (emailContent) => {
+    // Email functionality would be implemented here
+    // For now, we'll just open the default email client
+    const mailtoLink = `mailto:?subject=${encodeURIComponent(emailContent.subject)}&body=${encodeURIComponent(emailContent.body)}`;
+    window.open(mailtoLink);
+
+    logAction({
+      action: 'pos_report_emailed',
+      context: 'POSReportsScreen',
+      metadata: {
+        report_type: selectedReport,
+        date_range: dateRange,
+        business_id: auth.selectedBusinessId
+      }
+    });
   };
 
   const formatCurrency = (amount) => `$${(amount || 0).toFixed(2)}`;
-  const formatPercentage = (percent) => `${(percent || 0).toFixed(1)}%`;
 
+  const styles = {
+    container: {
+      padding: TavariStyles.spacing.xl,
+      backgroundColor: TavariStyles.colors.gray50,
+      overflowY: 'auto'
+    },
+    
+    errorBanner: {
+      ...TavariStyles.components.banner.base,
+      ...TavariStyles.components.banner.variants.error,
+      marginBottom: TavariStyles.spacing.lg
+    },
+    
+    controls: {
+      display: 'flex',
+      gap: TavariStyles.spacing.md,
+      marginBottom: TavariStyles.spacing.lg,
+      flexWrap: 'wrap',
+      alignItems: 'end',
+      padding: TavariStyles.spacing.lg,
+      backgroundColor: TavariStyles.colors.white,
+      borderRadius: TavariStyles.borderRadius.md,
+      border: `1px solid ${TavariStyles.colors.gray200}`,
+      boxShadow: TavariStyles.shadows.sm
+    },
+    
+    controlGroup: {
+      display: 'flex',
+      flexDirection: 'column',
+      minWidth: '120px'
+    },
+    
+    label: TavariStyles.components.form.label,
+    select: TavariStyles.components.form.select,
+    input: TavariStyles.components.form.input,
+    
+    loading: TavariStyles.components.loading.container,
+    
+    summaryGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+      gap: TavariStyles.spacing.lg,
+      marginBottom: TavariStyles.spacing.lg
+    },
+    
+    summaryCard: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.lg,
+      textAlign: 'center'
+    },
+    
+    summaryValue: {
+      fontSize: TavariStyles.typography.fontSize['2xl'],
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray900,
+      marginBottom: TavariStyles.spacing.xs
+    },
+    
+    summaryLabel: {
+      fontSize: TavariStyles.typography.fontSize.sm,
+      color: TavariStyles.colors.gray600,
+      fontWeight: TavariStyles.typography.fontWeight.medium
+    },
+    
+    reportNotImplemented: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.xl,
+      textAlign: 'center',
+      color: TavariStyles.colors.gray500
+    }
+  };
+
+  // Get the selected report component
+  const ReportComponent = REPORT_COMPONENTS[selectedReport];
+
+  // Show loading state if auth is loading
+  if (auth.authLoading) {
+    return <div style={styles.loading}>Authenticating...</div>;
+  }
+
+  // Show error if auth failed
+  if (auth.authError) {
+    return <div style={styles.errorBanner}>{auth.authError}</div>;
+  }
+
+  // Main render - NO POSAuthWrapper needed since we're using the hook directly
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <h2>POS Reports & Analytics</h2>
-        <p>Comprehensive sales reporting and business insights</p>
-      </div>
-
       {error && <div style={styles.errorBanner}>{error}</div>}
+      {taxError && <div style={styles.errorBanner}>Tax calculation error: {taxError}</div>}
 
       {/* Report Controls */}
       <div style={styles.controls}>
+        <div style={styles.controlGroup}>
+          <label style={styles.label}>Report Type:</label>
+          <select
+            value={selectedReport}
+            onChange={(e) => setSelectedReport(e.target.value)}
+            style={styles.select}
+          >
+            <optgroup label="Daily Operations">
+              <option value="sales-summary">Daily Sales Summary</option>
+              <option value="cash-drawer">Cash Drawer Reconciliation</option>
+              <option value="hourly-breakdown">Hourly Sales Breakdown</option>
+              <option value="payment-methods">Payment Method Analysis</option>
+            </optgroup>
+            <optgroup label="Financial & Tax">
+              <option value="tax-report">Tax Compliance Report</option>
+              <option value="end-period">End-of-Period Sales</option>
+              <option value="refunds-voids">Refunds & Voids Report</option>
+              <option value="discount-usage">Discount Usage Report</option>
+            </optgroup>
+            <optgroup label="Inventory & Products">
+              <option value="top-items">Top/Bottom Selling Items</option>
+              <option value="category-performance">Category Performance</option>
+              <option value="low-stock">Low Stock Alerts</option>
+              <option value="product-mix">Product Mix Analysis</option>
+            </optgroup>
+            <optgroup label="Staff & Labor">
+              <option value="employee-performance">Employee Sales Performance</option>
+              <option value="labor-analysis">Labor Cost Analysis</option>
+              <option value="shift-reports">Shift Performance Reports</option>
+            </optgroup>
+            <optgroup label="Customer Insights">
+              <option value="loyalty-program">Loyalty Program Report</option>
+              <option value="customer-history">Customer Transaction History</option>
+              <option value="customer-value">Average Customer Value</option>
+            </optgroup>
+            <optgroup label="Business Intelligence">
+              <option value="year-comparison">Year-over-Year Comparison</option>
+              <option value="profit-margin">Profit Margin Analysis</option>
+              <option value="promotional-effectiveness">Promotional Effectiveness</option>
+            </optgroup>
+          </select>
+        </div>
+
         <div style={styles.controlGroup}>
           <label style={styles.label}>Date Range:</label>
           <select
@@ -450,20 +641,6 @@ const POSReportsScreen = () => {
         )}
 
         <div style={styles.controlGroup}>
-          <label style={styles.label}>View By:</label>
-          <select
-            value={viewBy}
-            onChange={(e) => setViewBy(e.target.value)}
-            style={styles.select}
-          >
-            <option value="date">Date</option>
-            <option value="employee">Employee</option>
-            <option value="terminal">Terminal</option>
-            <option value="category">Category</option>
-          </select>
-        </div>
-
-        <div style={styles.controlGroup}>
           <label style={styles.label}>Employee:</label>
           <select
             value={selectedEmployee}
@@ -480,449 +657,68 @@ const POSReportsScreen = () => {
         </div>
 
         <div style={styles.controlGroup}>
-          <label style={styles.label}>Terminal:</label>
-          <select
-            value={selectedTerminal}
-            onChange={(e) => setSelectedTerminal(e.target.value)}
-            style={styles.select}
-          >
-            <option value="all">All Terminals</option>
-            {terminals.map(terminal => (
-              <option key={terminal.id} value={terminal.id}>
-                {terminal.name}
-              </option>
-            ))}
-          </select>
+          <TavariCheckbox
+            checked={compareToLastYear}
+            onChange={setCompareToLastYear}
+            label="Compare to Last Year"
+            id="compare-last-year"
+          />
         </div>
 
         <div style={styles.controlGroup}>
-          <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={compareToLastYear}
-              onChange={(e) => setCompareToLastYear(e.target.checked)}
-            />
-            Compare to Last Year
-          </label>
+          <TavariCheckbox
+            checked={includeTaxBreakdown}
+            onChange={setIncludeTaxBreakdown}
+            label="Include Tax Breakdown"
+            id="include-tax-breakdown"
+          />
         </div>
       </div>
 
-      {/* Export Controls */}
-      <div style={styles.exportControls}>
-        <div style={styles.controlGroup}>
-          <label style={styles.label}>Export Format:</label>
-          <select
-            value={exportFormat}
-            onChange={(e) => setExportFormat(e.target.value)}
-            style={styles.select}
-          >
-            <option value="csv">CSV</option>
-            <option value="pdf">PDF</option>
-          </select>
+      {/* Quick Summary Cards */}
+      <div style={styles.summaryGrid}>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryValue}>{formatCurrency(reportData.salesTotals)}</div>
+          <div style={styles.summaryLabel}>Total Sales</div>
         </div>
-        <button
-          style={styles.exportButton}
-          onClick={exportReport}
-          disabled={loading}
-        >
-          📊 Export Report
-        </button>
-        <button
-          style={styles.refreshButton}
-          onClick={generateReport}
-          disabled={loading}
-        >
-          🔄 Refresh Data
-        </button>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryValue}>{formatCurrency(reportData.netSales)}</div>
+          <div style={styles.summaryLabel}>Net Sales</div>
+        </div>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryValue}>{reportData.totalTransactions}</div>
+          <div style={styles.summaryLabel}>Transactions</div>
+        </div>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryValue}>{formatCurrency(reportData.avgTransaction)}</div>
+          <div style={styles.summaryLabel}>Avg Transaction</div>
+        </div>
       </div>
 
       {/* Report Content */}
-      <div style={styles.content}>
-        {loading ? (
-          <div style={styles.loading}>Generating report...</div>
-        ) : (
-          <>
-            {/* Summary Cards */}
-            <div style={styles.summaryGrid}>
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryValue}>{formatCurrency(reportData.salesTotals)}</div>
-                <div style={styles.summaryLabel}>Total Sales</div>
-                {reportData.comparisonData && (
-                  <div style={styles.comparison}>
-                    vs {formatCurrency(reportData.comparisonData.lastYearSales)} last year
-                  </div>
-                )}
-              </div>
-
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryValue}>{formatCurrency(reportData.refundTotals)}</div>
-                <div style={styles.summaryLabel}>Total Refunds</div>
-              </div>
-
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryValue}>{formatCurrency(reportData.netSales)}</div>
-                <div style={styles.summaryLabel}>Net Sales</div>
-                {reportData.comparisonData && (
-                  <div style={{
-                    ...styles.comparison,
-                    color: reportData.comparisonData.growth >= 0 ? '#059669' : '#dc2626'
-                  }}>
-                    {reportData.comparisonData.growth >= 0 ? '+' : ''}{formatPercentage(reportData.comparisonData.growth)} vs last year
-                  </div>
-                )}
-              </div>
-
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryValue}>{reportData.totalTransactions}</div>
-                <div style={styles.summaryLabel}>Total Transactions</div>
-              </div>
-
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryValue}>{formatCurrency(reportData.avgTransaction)}</div>
-                <div style={styles.summaryLabel}>Avg Transaction</div>
-              </div>
-            </div>
-
-            {/* Detailed Sections */}
-            <div style={styles.sectionsGrid}>
-              {/* Payment Breakdown */}
-              <div style={styles.section}>
-                <h3 style={styles.sectionTitle}>Payment Method Breakdown</h3>
-                <div style={styles.paymentList}>
-                  {reportData.paymentBreakdown.map((payment, index) => (
-                    <div key={index} style={styles.paymentItem}>
-                      <div style={styles.paymentMethod}>{payment.method}</div>
-                      <div style={styles.paymentDetails}>
-                        <div>{formatCurrency(payment.amount)}</div>
-                        <div style={styles.paymentPercentage}>{formatPercentage(payment.percentage)}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Top Items */}
-              <div style={styles.section}>
-                <h3 style={styles.sectionTitle}>Top Selling Items</h3>
-                <div style={styles.itemsList}>
-                  {reportData.topItems.slice(0, 5).map((item, index) => (
-                    <div key={index} style={styles.itemRow}>
-                      <div style={styles.itemRank}>#{index + 1}</div>
-                      <div style={styles.itemInfo}>
-                        <div style={styles.itemName}>{item.name}</div>
-                        <div style={styles.itemStats}>
-                          Qty: {item.quantity} | Revenue: {formatCurrency(item.revenue)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Employee Performance */}
-              <div style={styles.section}>
-                <h3 style={styles.sectionTitle}>Employee Performance</h3>
-                <div style={styles.employeeList}>
-                  {reportData.employeeStats.slice(0, 5).map((employee, index) => (
-                    <div key={index} style={styles.employeeRow}>
-                      <div style={styles.employeeName}>{employee.name}</div>
-                      <div style={styles.employeeStats}>
-                        <div>{employee.transactions} transactions</div>
-                        <div>{formatCurrency(employee.revenue)} revenue</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Terminal Cash Variances */}
-              {reportData.terminalCashVariances.length > 0 && (
-                <div style={styles.section}>
-                  <h3 style={styles.sectionTitle}>Terminal Cash Variances</h3>
-                  <div style={styles.varianceList}>
-                    {reportData.terminalCashVariances.map((variance, index) => (
-                      <div key={index} style={styles.varianceRow}>
-                        <div style={styles.terminalId}>Terminal {variance.terminal_id}</div>
-                        <div style={styles.varianceDetails}>
-                          <div>Expected: {formatCurrency(variance.expected)}</div>
-                          <div>Actual: {formatCurrency(variance.actual)}</div>
-                          <div style={{
-                            color: variance.variance === 0 ? '#059669' : 
-                                   Math.abs(variance.variance) < 5 ? '#f59e0b' : '#dc2626'
-                          }}>
-                            Variance: {formatCurrency(variance.variance)}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+      {loading ? (
+        <div style={styles.loading}>Generating report...</div>
+      ) : ReportComponent ? (
+        <ReportComponent
+          data={reportData}
+          dateRange={dateRange}
+          customDateStart={customDateStart}
+          customDateEnd={customDateEnd}
+          compareToLastYear={compareToLastYear}
+          selectedEmployee={selectedEmployee}
+          employees={employees}
+          businessId={auth.selectedBusinessId}
+          onExport={handleExport}
+          onEmail={handleEmail}
+        />
+      ) : (
+        <div style={styles.reportNotImplemented}>
+          <h3>{REPORT_NAMES[selectedReport] || 'Unknown Report'}</h3>
+          <p>This report is not yet implemented. Check back soon!</p>
+        </div>
+      )}
     </div>
   );
-};
-
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    backgroundColor: '#f8f9fa',
-    padding: '20px',
-    paddingTop: '100px',
-    boxSizing: 'border-box'
-  },
-  header: {
-    marginBottom: '30px',
-    textAlign: 'center'
-  },
-  errorBanner: {
-    backgroundColor: '#fee2e2',
-    color: '#dc2626',
-    padding: '15px',
-    borderRadius: '6px',
-    marginBottom: '20px'
-  },
-  controls: {
-    display: 'flex',
-    gap: '15px',
-    marginBottom: '20px',
-    flexWrap: 'wrap',
-    alignItems: 'end'
-  },
-  controlGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: '120px'
-  },
-  label: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    marginBottom: '4px'
-  },
-  checkboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    cursor: 'pointer'
-  },
-  select: {
-    padding: '8px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '14px',
-    backgroundColor: 'white'
-  },
-  input: {
-    padding: '8px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '14px'
-  },
-  exportControls: {
-    display: 'flex',
-    gap: '15px',
-    alignItems: 'end',
-    marginBottom: '30px',
-    padding: '15px',
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb'
-  },
-  exportButton: {
-    padding: '10px 16px',
-    backgroundColor: '#059669',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    cursor: 'pointer'
-  },
-  refreshButton: {
-    padding: '10px 16px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    cursor: 'pointer'
-  },
-  content: {
-    flex: 1,
-    overflowY: 'auto'
-  },
-  loading: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#6b7280'
-  },
-  summaryGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '20px',
-    marginBottom: '30px'
-  },
-  summaryCard: {
-    backgroundColor: 'white',
-    padding: '20px',
-    borderRadius: '8px',
-    textAlign: 'center',
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-  },
-  summaryValue: {
-    fontSize: '28px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '8px'
-  },
-  summaryLabel: {
-    fontSize: '14px',
-    color: '#6b7280',
-    fontWeight: '500'
-  },
-  comparison: {
-    fontSize: '12px',
-    color: '#6b7280',
-    marginTop: '4px'
-  },
-  sectionsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-    gap: '20px'
-  },
-  section: {
-    backgroundColor: 'white',
-    padding: '20px',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb'
-  },
-  sectionTitle: {
-    fontSize: '16px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '15px',
-    paddingBottom: '8px',
-    borderBottom: '2px solid #008080'
-  },
-  paymentList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px'
-  },
-  paymentItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '10px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '6px'
-  },
-  paymentMethod: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#1f2937'
-  },
-  paymentDetails: {
-    textAlign: 'right'
-  },
-  paymentPercentage: {
-    fontSize: '12px',
-    color: '#6b7280'
-  },
-  itemsList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px'
-  },
-  itemRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '10px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '6px'
-  },
-  itemRank: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#008080',
-    minWidth: '30px'
-  },
-  itemInfo: {
-    flex: 1
-  },
-  itemName: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: '2px'
-  },
-  itemStats: {
-    fontSize: '12px',
-    color: '#6b7280'
-  },
-  employeeList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px'
-  },
-  employeeRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '10px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '6px'
-  },
-  employeeName: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#1f2937'
-  },
-  employeeStats: {
-    textAlign: 'right',
-    fontSize: '12px',
-    color: '#6b7280'
-  },
-  varianceList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px'
-  },
-  varianceRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '10px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '6px'
-  },
-  terminalId: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#1f2937'
-  },
-  varianceDetails: {
-    textAlign: 'right',
-    fontSize: '12px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px'
-  }
 };
 
 export default POSReportsScreen;

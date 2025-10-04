@@ -1,59 +1,103 @@
-// src/screens/POS/POSCategories.jsx
-// Steps 107-108: Enhanced category management with color and emoji picker
+// src/screens/POS/POSCategories.jsx - Updated with Foundation Components
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
-import { useBusiness } from '../../contexts/BusinessContext';
 import { logAction } from '../../helpers/posAudit';
 
-const POSCategories = () => {
-  const { business } = useBusiness();
-  const businessId = business?.id;
+// Foundation Components
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
+import { TavariStyles } from '../../utils/TavariStyles';
+import TavariCheckbox from '../../components/UI/TavariCheckbox';
+import POSAuthWrapper from '../../components/Auth/POSAuthWrapper';
+import { usePOSAuth } from '../../hooks/usePOSAuth';
 
+import CategoryModal from '../../components/CategoryModal';
+
+const POSCategories = () => {
+  const navigate = useNavigate();
+  
+  // Use standardized authentication
+  const auth = usePOSAuth({
+    requireBusiness: true,
+    requiredRoles: ['manager', 'owner'], // Categories typically need management access
+    componentName: 'POSCategories'
+  });
+
+  // Use standardized tax calculations
+  const {
+    taxCategories,
+    categoryTaxAssignments,
+    calculateItemTax,
+    loading: taxLoading,
+    error: taxError,
+    refreshTaxData
+  } = useTaxCalculations(auth.selectedBusinessId);
+
+  // Component state
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // New category form
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryColor, setNewCategoryColor] = useState('#008080');
-  const [newCategoryEmoji, setNewCategoryEmoji] = useState('');
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showNewEmojiPicker, setShowNewEmojiPicker] = useState(false);
+  // Modal state
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
   
   // Edit category form
   const [editCategoryId, setEditCategoryId] = useState(null);
   const [editCategoryName, setEditCategoryName] = useState('');
   const [editCategoryColor, setEditCategoryColor] = useState('#008080');
   const [editCategoryEmoji, setEditCategoryEmoji] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  // Predefined colors for quick selection
-  const predefinedColors = [
-    '#008080', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1', '#14b8a6'
+  // Tax assignment state
+  const [showTaxModal, setShowTaxModal] = useState(false);
+  const [selectedCategoryForTax, setSelectedCategoryForTax] = useState(null);
+  const [selectedTaxCategories, setSelectedTaxCategories] = useState([]);
+
+  // Tax preview state
+  const [showTaxPreview, setShowTaxPreview] = useState(false);
+  const [previewSamplePrice, setPreviewSamplePrice] = useState(10.00);
+
+  // Predefined colors with names for dropdown
+  const colorOptions = [
+    { value: TavariStyles.colors.primary, name: 'Teal (Default)', preview: TavariStyles.colors.primary },
+    { value: TavariStyles.colors.secondary, name: 'Blue', preview: TavariStyles.colors.secondary },
+    { value: TavariStyles.colors.success, name: 'Green', preview: TavariStyles.colors.success },
+    { value: TavariStyles.colors.warning, name: 'Orange', preview: TavariStyles.colors.warning },
+    { value: TavariStyles.colors.danger, name: 'Red', preview: TavariStyles.colors.danger },
+    { value: '#8b5cf6', name: 'Purple', preview: '#8b5cf6' },
+    { value: '#ec4899', name: 'Pink', preview: '#ec4899' },
+    { value: TavariStyles.colors.info, name: 'Cyan', preview: TavariStyles.colors.info },
+    { value: '#84cc16', name: 'Lime', preview: '#84cc16' },
+    { value: '#f97316', name: 'Amber', preview: '#f97316' },
+    { value: '#6366f1', name: 'Indigo', preview: '#6366f1' },
+    { value: '#14b8a6', name: 'Emerald', preview: '#14b8a6' }
   ];
 
   // Common emojis for categories
   const commonEmojis = [
-    '🍔', '🍕', '🍟', '🌭', '🥪', '🍗', '🍖', '🥗', '🍝', '🍜',
+    '🍔', '🍕', '🍟', '🌭', '🥪', '🗃', '🥖', '🥗', '🍝', '🍜',
     '🍺', '🍷', '🥤', '☕', '🧊', '🍰', '🧁', '🍪', '🍩', '🍫',
     '🥘', '🍛', '🍲', '🍣', '🍤', '🥟', '🌮', '🌯', '🥙', '🍱',
-    '🍎', '🥕', '🥬', '🧀', '🥓', '🍞', '🥖', '🥨', '🥯', '🥞'
+    '🍎', '🥕', '🥬', '🧀', '🥔', '🍞', '🥖', '🥨', '🥯', '🥞'
   ];
 
+  // Load categories when auth is ready
   useEffect(() => {
-    if (businessId) {
+    if (auth.selectedBusinessId && auth.isReady) {
       fetchCategories();
     }
-  }, [businessId]);
+  }, [auth.selectedBusinessId, auth.isReady]);
 
   const fetchCategories = async () => {
+    if (!auth.selectedBusinessId) return;
+
     setLoading(true);
     setError(null);
     try {
       const { data, error } = await supabase
         .from('pos_categories')
         .select('*')
-        .eq('business_id', businessId)
+        .eq('business_id', auth.selectedBusinessId)
         .order('sort_order', { ascending: true });
 
       if (error) throw error;
@@ -62,19 +106,55 @@ const POSCategories = () => {
       await logAction({
         action: 'pos_categories_loaded',
         context: 'POSCategories',
-        metadata: { category_count: data?.length || 0 }
+        metadata: { category_count: data?.length || 0 },
+        actor_id: auth.authUser?.id,
+        business_id: auth.selectedBusinessId
       });
 
     } catch (err) {
+      console.error('Error fetching categories:', err);
       setError('Error fetching categories: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const addCategory = async () => {
-    if (!newCategoryName.trim()) {
-      setError('Category name is required');
+  const getCategoryTaxAssignments = (categoryId) => {
+    return categoryTaxAssignments.filter(assignment => assignment.category_id === categoryId);
+  };
+
+  // Calculate tax preview for a category using the standardized tax calculations
+  const calculateTaxPreview = (categoryId, samplePrice = 10.00) => {
+    const mockItem = {
+      id: 'preview',
+      category_id: categoryId,
+      price: samplePrice,
+      quantity: 1,
+      item_tax_overrides: [] // No item overrides for category preview
+    };
+
+    try {
+      const result = calculateItemTax(mockItem, samplePrice);
+      return {
+        success: true,
+        taxAmount: result.taxAmount,
+        effectiveRate: result.effectiveRate,
+        breakdown: result.simpleTaxBreakdown,
+        rebates: result.rebateBreakdown,
+        isExempt: result.isExempt
+      };
+    } catch (error) {
+      console.error('Tax preview calculation error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  };
+
+  const handleCategoryModalSave = async (categoryData) => {
+    if (!auth.selectedBusinessId) {
+      setError('No business selected');
       return;
     }
 
@@ -82,35 +162,56 @@ const POSCategories = () => {
     try {
       const maxSortOrder = categories.length > 0 ? Math.max(...categories.map(c => c.sort_order || 0)) : 0;
       
-      const { error } = await supabase.from('pos_categories').insert([{
-        name: newCategoryName.trim(),
-        business_id: businessId,
-        color: newCategoryColor,
-        emoji: newCategoryEmoji.trim() || null,
-        sort_order: maxSortOrder + 1,
-        created_at: new Date().toISOString()
-      }]);
+      // Insert the category first
+      const { data: newCategory, error: categoryError } = await supabase
+        .from('pos_categories')
+        .insert([{
+          name: categoryData.name,
+          business_id: auth.selectedBusinessId,
+          color: categoryData.color,
+          emoji: categoryData.emoji,
+          sort_order: maxSortOrder + 1,
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (categoryError) throw categoryError;
+
+      // Handle multiple tax assignments if provided
+      if (categoryData.selectedTaxCategories && categoryData.selectedTaxCategories.length > 0) {
+        const assignments = categoryData.selectedTaxCategories.map(taxCategoryId => ({
+          business_id: auth.selectedBusinessId,
+          category_id: newCategory.id,
+          tax_category_id: taxCategoryId,
+          is_active: true
+        }));
+
+        const { error: assignmentError } = await supabase
+          .from('pos_category_tax_assignments')
+          .insert(assignments);
+
+        if (assignmentError) throw assignmentError;
+      }
 
       await logAction({
         action: 'pos_category_created',
         context: 'POSCategories',
         metadata: {
-          category_name: newCategoryName.trim(),
-          color: newCategoryColor,
-          emoji: newCategoryEmoji
-        }
+          category_name: categoryData.name,
+          color: categoryData.color,
+          emoji: categoryData.emoji,
+          tax_assignments: categoryData.selectedTaxCategories?.length || 0
+        },
+        actor_id: auth.authUser?.id,
+        business_id: auth.selectedBusinessId
       });
 
-      // Reset form
-      setNewCategoryName('');
-      setNewCategoryColor('#008080');
-      setNewCategoryEmoji('');
-      setShowNewEmojiPicker(false);
-      
+      setShowCategoryModal(false);
       fetchCategories();
+      refreshTaxData(); // Refresh tax data to get updated assignments
     } catch (err) {
+      console.error('Error adding category:', err);
       setError('Error adding category: ' + err.message);
     }
   };
@@ -118,14 +219,14 @@ const POSCategories = () => {
   const startEditCategory = (category) => {
     setEditCategoryId(category.id);
     setEditCategoryName(category.name);
-    setEditCategoryColor(category.color || '#008080');
+    setEditCategoryColor(category.color || TavariStyles.colors.primary);
     setEditCategoryEmoji(category.emoji || '');
   };
 
   const cancelEdit = () => {
     setEditCategoryId(null);
     setEditCategoryName('');
-    setEditCategoryColor('#008080');
+    setEditCategoryColor(TavariStyles.colors.primary);
     setEditCategoryEmoji('');
     setShowEmojiPicker(false);
   };
@@ -158,12 +259,15 @@ const POSCategories = () => {
           category_name: editCategoryName.trim(),
           color: editCategoryColor,
           emoji: editCategoryEmoji
-        }
+        },
+        actor_id: auth.authUser?.id,
+        business_id: auth.selectedBusinessId
       });
 
       cancelEdit();
       fetchCategories();
     } catch (err) {
+      console.error('Error updating category:', err);
       setError('Error updating category: ' + err.message);
     }
   };
@@ -173,17 +277,28 @@ const POSCategories = () => {
     
     setError(null);
     try {
+      // Delete tax assignments first
+      await supabase
+        .from('pos_category_tax_assignments')
+        .delete()
+        .eq('category_id', id);
+
+      // Then delete the category
       const { error } = await supabase.from('pos_categories').delete().eq('id', id);
       if (error) throw error;
 
       await logAction({
         action: 'pos_category_deleted',
         context: 'POSCategories',
-        metadata: { category_id: id, category_name: name }
+        metadata: { category_id: id, category_name: name },
+        actor_id: auth.authUser?.id,
+        business_id: auth.selectedBusinessId
       });
 
       fetchCategories();
+      refreshTaxData(); // Refresh tax data after deletion
     } catch (err) {
+      console.error('Error deleting category:', err);
       setError('Error deleting category: ' + err.message);
     }
   };
@@ -224,673 +339,1021 @@ const POSCategories = () => {
           category_a: categoryA.name,
           category_b: categoryB.name,
           direction: direction > 0 ? 'down' : 'up'
-        }
+        },
+        actor_id: auth.authUser?.id,
+        business_id: auth.selectedBusinessId
       });
 
       fetchCategories();
     } catch (err) {
+      console.error('Error moving category:', err);
       setError('Error moving category: ' + err.message);
     }
   };
 
-  const handleEmojiSelect = (emoji, isNew = false) => {
-    if (isNew) {
-      setNewCategoryEmoji(emoji);
-      setShowNewEmojiPicker(false);
-    } else {
-      setEditCategoryEmoji(emoji);
-      setShowEmojiPicker(false);
+  const handleEmojiSelect = (emoji) => {
+    setEditCategoryEmoji(emoji);
+    setShowEmojiPicker(false);
+  };
+
+  const openTaxModal = (category) => {
+    setSelectedCategoryForTax(category);
+    const assignments = getCategoryTaxAssignments(category.id);
+    setSelectedTaxCategories(assignments.map(a => a.tax_category_id));
+    setShowTaxModal(true);
+  };
+
+  const closeTaxModal = () => {
+    setShowTaxModal(false);
+    setSelectedCategoryForTax(null);
+    setSelectedTaxCategories([]);
+    setShowTaxPreview(false);
+  };
+
+  const handleTaxCategoryToggle = (taxCategoryId) => {
+    setSelectedTaxCategories(prev => 
+      prev.includes(taxCategoryId)
+        ? prev.filter(id => id !== taxCategoryId)
+        : [...prev, taxCategoryId]
+    );
+  };
+
+  const saveTaxAssignments = async () => {
+    if (!selectedCategoryForTax) return;
+
+    setError(null);
+    try {
+      // First, deactivate all existing assignments for this category
+      await supabase
+        .from('pos_category_tax_assignments')
+        .update({ is_active: false })
+        .eq('category_id', selectedCategoryForTax.id)
+        .eq('business_id', auth.selectedBusinessId);
+
+      // Then create new assignments
+      if (selectedTaxCategories.length > 0) {
+        const assignments = selectedTaxCategories.map(taxCategoryId => ({
+          business_id: auth.selectedBusinessId,
+          category_id: selectedCategoryForTax.id,
+          tax_category_id: taxCategoryId,
+          is_active: true
+        }));
+
+        const { error } = await supabase
+          .from('pos_category_tax_assignments')
+          .insert(assignments);
+
+        if (error) throw error;
+      }
+
+      await logAction({
+        action: 'category_tax_assignments_updated',
+        context: 'POSCategories',
+        metadata: {
+          category_id: selectedCategoryForTax.id,
+          category_name: selectedCategoryForTax.name,
+          tax_categories: selectedTaxCategories.length
+        },
+        actor_id: auth.authUser?.id,
+        business_id: auth.selectedBusinessId
+      });
+
+      refreshTaxData(); // Refresh tax data after assignments change
+      closeTaxModal();
+    } catch (err) {
+      console.error('Error saving tax assignments:', err);
+      setError('Error saving tax assignments: ' + err.message);
     }
   };
 
-  if (!businessId) {
+  const getTaxSummary = (categoryId) => {
+    const assignments = getCategoryTaxAssignments(categoryId);
+    if (assignments.length === 0) return 'No taxes assigned';
+    
+    return assignments.map(assignment => {
+      const tax = assignment.pos_tax_categories;
+      if (!tax) return 'Unknown tax';
+      
+      const isRebate = tax.category_type === 'rebate';
+      const isExemption = tax.category_type === 'exemption';
+      
+      if (isExemption) return `${tax.name} (Exempt)`;
+      if (isRebate) return `${tax.name} (Rebate)`;
+      return `${tax.name} (${(tax.rate * 100).toFixed(1)}%)`;
+    }).join(', ');
+  };
+
+  const getColorOption = (color) => {
+    return colorOptions.find(option => option.value === color);
+  };
+
+  // Main component content
+  const renderContent = () => {
+    if (loading || taxLoading) {
+      return (
+        <div style={styles.loading}>
+          <div style={styles.spinner}></div>
+          <p>Loading categories and tax settings...</p>
+        </div>
+      );
+    }
+
     return (
       <div style={styles.container}>
-        <div style={styles.error}>Please select a business to manage categories.</div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.loading}>Loading categories...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h2>POS Categories</h2>
-        <p>Organize inventory items with colors and visual identifiers</p>
-      </div>
-
-      {error && <div style={styles.errorBanner}>{error}</div>}
-
-      {/* Add New Category Form */}
-      <div style={styles.addSection}>
-        <h3 style={styles.sectionTitle}>Add New Category</h3>
-        <div style={styles.form}>
-          <div style={styles.formRow}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Category Name *</label>
-              <input
-                type="text"
-                placeholder="Category name"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Color</label>
-              <div style={styles.colorSection}>
-                <input
-                  type="color"
-                  value={newCategoryColor}
-                  onChange={(e) => setNewCategoryColor(e.target.value)}
-                  style={styles.colorInput}
-                />
-                <div style={styles.colorPreview}>
-                  <div 
-                    style={{
-                      ...styles.colorSwatch,
-                      backgroundColor: newCategoryColor
-                    }}
-                  />
-                  <span style={styles.colorCode}>{newCategoryColor}</span>
-                </div>
-              </div>
-              
-              <div style={styles.predefinedColors}>
-                {predefinedColors.map(color => (
-                  <div
-                    key={color}
-                    style={{
-                      ...styles.colorOption,
-                      backgroundColor: color,
-                      border: newCategoryColor === color ? '3px solid #1f2937' : '1px solid #d1d5db'
-                    }}
-                    onClick={() => setNewCategoryColor(color)}
-                    title={color}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Emoji (Optional)</label>
-              <div style={styles.emojiSection}>
-                <div
-                  style={styles.emojiDisplay}
-                  onClick={() => setShowNewEmojiPicker(!showNewEmojiPicker)}
-                >
-                  {newCategoryEmoji || '➕'}
-                </div>
-                <input
-                  type="text"
-                  placeholder="Type emoji or click to select"
-                  value={newCategoryEmoji}
-                  onChange={(e) => setNewCategoryEmoji(e.target.value.slice(0, 2))}
-                  style={styles.emojiInput}
-                />
-              </div>
-              
-              {showNewEmojiPicker && (
-                <div style={styles.emojiPicker}>
-                  <div style={styles.emojiGrid}>
-                    {commonEmojis.map(emoji => (
-                      <div
-                        key={emoji}
-                        style={styles.emojiOption}
-                        onClick={() => handleEmojiSelect(emoji, true)}
-                      >
-                        {emoji}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
+        <div style={styles.header}>
+          <h2 style={styles.title}>Category Management</h2>
+          <p style={styles.subtitle}>Organize inventory items with colors, visual identifiers, and tax settings</p>
           <button 
-            onClick={addCategory} 
             style={styles.addButton}
-            disabled={!newCategoryName.trim()}
+            onClick={() => setShowCategoryModal(true)}
           >
-            Add Category
+            Add New Category
           </button>
         </div>
-      </div>
 
-      {/* Categories Table */}
-      <div style={styles.tableContainer}>
-        <table style={styles.table}>
-          <thead>
-            <tr style={styles.headerRow}>
-              <th style={styles.th}>Preview</th>
-              <th style={styles.th}>Name</th>
-              <th style={styles.th}>Color</th>
-              <th style={styles.th}>Emoji</th>
-              <th style={styles.th}>Order</th>
-              <th style={styles.th}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {categories.length === 0 && (
-              <tr>
-                <td colSpan="6" style={styles.emptyCell}>
-                  No categories found. Create your first category above.
-                </td>
+        {(error || taxError) && (
+          <div style={styles.errorBanner}>
+            {error || taxError}
+          </div>
+        )}
+
+        {/* Categories Table */}
+        <div style={styles.tableContainer}>
+          <table style={styles.table}>
+            <thead>
+              <tr style={styles.headerRow}>
+                <th style={styles.th}>Preview</th>
+                <th style={styles.th}>Name</th>
+                <th style={styles.th}>Color</th>
+                <th style={styles.th}>Icon</th>
+                <th style={styles.th}>Tax Settings</th>
+                <th style={styles.th}>Order</th>
+                <th style={styles.th}>Actions</th>
               </tr>
-            )}
-            {categories.map((category, i) => (
-              <tr key={category.id} style={{
-                ...styles.row,
-                backgroundColor: i % 2 === 0 ? '#f9f9f9' : 'white'
-              }}>
-                <td style={styles.td}>
-                  <div 
-                    style={{
-                      ...styles.categoryPreview,
-                      backgroundColor: category.color || '#008080'
-                    }}
-                  >
-                    {category.emoji && (
-                      <span style={styles.previewEmoji}>{category.emoji}</span>
-                    )}
-                  </div>
-                </td>
-                
-                <td style={styles.td}>
-                  {editCategoryId === category.id ? (
-                    <input
-                      type="text"
-                      value={editCategoryName}
-                      onChange={(e) => setEditCategoryName(e.target.value)}
-                      style={styles.input}
-                    />
-                  ) : (
-                    <div style={styles.categoryName}>
+            </thead>
+            <tbody>
+              {categories.length === 0 && (
+                <tr>
+                  <td colSpan="7" style={styles.emptyCell}>
+                    No categories found. Create your first category using the "Add New Category" button above.
+                  </td>
+                </tr>
+              )}
+              {categories.map((category, i) => (
+                <tr key={category.id} style={{
+                  ...styles.row,
+                  backgroundColor: i % 2 === 0 ? TavariStyles.colors.gray50 : TavariStyles.colors.white
+                }}>
+                  <td style={styles.td}>
+                    <div 
+                      style={{
+                        ...styles.categoryPreview,
+                        backgroundColor: category.color || TavariStyles.colors.primary
+                      }}
+                    >
                       {category.emoji && (
-                        <span style={styles.nameEmoji}>{category.emoji}</span>
+                        <span style={styles.previewEmoji}>{category.emoji}</span>
                       )}
-                      {category.name}
                     </div>
-                  )}
-                </td>
-                
-                <td style={styles.td}>
-                  {editCategoryId === category.id ? (
-                    <div style={styles.editColorSection}>
-                      <input
-                        type="color"
-                        value={editCategoryColor}
-                        onChange={(e) => setEditCategoryColor(e.target.value)}
-                        style={styles.colorInput}
-                      />
-                      <div style={styles.predefinedColors}>
-                        {predefinedColors.slice(0, 6).map(color => (
-                          <div
-                            key={color}
-                            style={{
-                              ...styles.colorOption,
-                              backgroundColor: color,
-                              border: editCategoryColor === color ? '2px solid #1f2937' : '1px solid #d1d5db'
-                            }}
-                            onClick={() => setEditCategoryColor(color)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={styles.colorDisplay}>
-                      <div 
-                        style={{
-                          ...styles.colorSwatch,
-                          backgroundColor: category.color || '#008080'
-                        }}
-                      />
-                      <span style={styles.colorCode}>{category.color || '#008080'}</span>
-                    </div>
-                  )}
-                </td>
-                
-                <td style={styles.td}>
-                  {editCategoryId === category.id ? (
-                    <div style={styles.editEmojiSection}>
-                      <div
-                        style={styles.emojiDisplay}
-                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                      >
-                        {editCategoryEmoji || '➕'}
-                      </div>
+                  </td>
+                  
+                  <td style={styles.td}>
+                    {editCategoryId === category.id ? (
                       <input
                         type="text"
-                        value={editCategoryEmoji}
-                        onChange={(e) => setEditCategoryEmoji(e.target.value.slice(0, 2))}
-                        style={styles.emojiInput}
-                        placeholder="Emoji"
+                        value={editCategoryName}
+                        onChange={(e) => setEditCategoryName(e.target.value)}
+                        style={styles.input}
                       />
-                      {showEmojiPicker && (
-                        <div style={styles.emojiPicker}>
-                          <div style={styles.emojiGrid}>
-                            {commonEmojis.slice(0, 20).map(emoji => (
-                              <div
-                                key={emoji}
-                                style={styles.emojiOption}
-                                onClick={() => handleEmojiSelect(emoji, false)}
-                              >
-                                {emoji}
-                              </div>
-                            ))}
+                    ) : (
+                      <div style={styles.categoryName}>
+                        {category.emoji && (
+                          <span style={styles.nameEmoji}>{category.emoji}</span>
+                        )}
+                        {category.name}
+                      </div>
+                    )}
+                  </td>
+                  
+                  <td style={styles.td}>
+                    {editCategoryId === category.id ? (
+                      <div style={styles.editColorSection}>
+                        <select
+                          value={editCategoryColor}
+                          onChange={(e) => setEditCategoryColor(e.target.value)}
+                          style={styles.colorSelect}
+                        >
+                          {colorOptions.map(option => (
+                            <option key={option.value} value={option.value}>
+                              {option.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div style={styles.colorDisplay}>
+                        <div 
+                          style={{
+                            ...styles.colorSwatch,
+                            backgroundColor: category.color || TavariStyles.colors.primary
+                          }}
+                        />
+                        <span style={styles.colorName}>
+                          {getColorOption(category.color || TavariStyles.colors.primary)?.name || 'Custom'}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                  
+                  <td style={styles.td}>
+                    {editCategoryId === category.id ? (
+                      <div style={styles.editEmojiSection}>
+                        <div
+                          style={styles.emojiDisplay}
+                          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        >
+                          {editCategoryEmoji || '🔍'}
+                        </div>
+                        <input
+                          type="text"
+                          value={editCategoryEmoji}
+                          onChange={(e) => setEditCategoryEmoji(e.target.value.slice(0, 2))}
+                          style={styles.emojiInput}
+                          placeholder="Icon"
+                        />
+                        {showEmojiPicker && (
+                          <div style={styles.emojiPicker}>
+                            <div style={styles.emojiGrid}>
+                              {commonEmojis.slice(0, 20).map(emoji => (
+                                <div
+                                  key={emoji}
+                                  style={styles.emojiOption}
+                                  onClick={() => handleEmojiSelect(emoji)}
+                                >
+                                  {emoji}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={styles.emojiDisplay}>
+                        {category.emoji || '—'}
+                      </div>
+                    )}
+                  </td>
+                  
+                  <td style={styles.td}>
+                    <div style={styles.taxSettings}>
+                      <div style={styles.taxSummary}>
+                        {getTaxSummary(category.id)}
+                      </div>
+                      <button
+                        style={styles.taxButton}
+                        onClick={() => openTaxModal(category)}
+                      >
+                        Configure
+                      </button>
+                    </div>
+                  </td>
+                  
+                  <td style={styles.td}>
+                    <div style={styles.orderControls}>
+                      <button
+                        onClick={() => moveCategory(category.id, -1)}
+                        disabled={i === 0}
+                        style={styles.orderButton}
+                        title="Move Up"
+                      >
+                        ↑
+                      </button>
+                      <span style={styles.orderNumber}>{i + 1}</span>
+                      <button
+                        onClick={() => moveCategory(category.id, 1)}
+                        disabled={i === categories.length - 1}
+                        style={styles.orderButton}
+                        title="Move Down"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </td>
+                  
+                  <td style={styles.td}>
+                    {editCategoryId === category.id ? (
+                      <div style={styles.editActions}>
+                        <button 
+                          onClick={saveEditCategory} 
+                          style={styles.saveButton}
+                          disabled={!editCategoryName.trim()}
+                        >
+                          Save
+                        </button>
+                        <button onClick={cancelEdit} style={styles.cancelButton}>
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={styles.actions}>
+                        <button 
+                          onClick={() => startEditCategory(category)} 
+                          style={styles.editButton}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => deleteCategory(category.id, category.name)} 
+                          style={styles.deleteButton}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Category Modal */}
+        <CategoryModal
+          isOpen={showCategoryModal}
+          onClose={() => setShowCategoryModal(false)}
+          onSave={handleCategoryModalSave}
+          taxCategories={taxCategories}
+          colorOptions={colorOptions}
+        />
+
+        {/* Tax Assignment Modal */}
+        {showTaxModal && selectedCategoryForTax && (
+          <div style={styles.modal}>
+            <div style={styles.modalContent}>
+              <div style={styles.modalHeader}>
+                <h3 style={styles.modalTitle}>Tax Settings for "{selectedCategoryForTax.name}"</h3>
+                <button style={styles.closeButton} onClick={closeTaxModal}>×</button>
+              </div>
+              
+              <div style={styles.modalBody}>
+                <div style={styles.taxDescription}>
+                  Select which tax rates apply to items in this category by default. 
+                  Individual items can override these settings when needed.
+                </div>
+                
+                <div style={styles.taxCategoriesList}>
+                  {taxCategories.map(taxCategory => {
+                    const isRebate = taxCategory.category_type === 'rebate';
+                    const isExemption = taxCategory.category_type === 'exemption';
+                    const isTax = taxCategory.category_type === 'tax';
+                    const isSelected = selectedTaxCategories.includes(taxCategory.id);
+                    
+                    return (
+                      <div 
+                        key={taxCategory.id} 
+                        style={{
+                          ...styles.taxCategoryItem,
+                          backgroundColor: isSelected ? TavariStyles.colors.infoBg : TavariStyles.colors.white,
+                          borderColor: isSelected ? TavariStyles.colors.info : TavariStyles.colors.gray300
+                        }}
+                        onClick={() => handleTaxCategoryToggle(taxCategory.id)}
+                      >
+                        <div style={styles.taxCategoryHeader}>
+                          <TavariCheckbox
+                            checked={isSelected}
+                            onChange={() => handleTaxCategoryToggle(taxCategory.id)}
+                            size="md"
+                          />
+                          
+                          <div style={styles.taxCategoryInfo}>
+                            <div style={styles.taxCategoryName}>
+                              {taxCategory.name}
+                              {isRebate && <span style={styles.rebateBadge}>REBATE</span>}
+                              {isExemption && <span style={styles.exemptionBadge}>EXEMPT</span>}
+                              {isTax && <span style={styles.primaryBadge}>TAX</span>}
+                            </div>
+                            <div style={styles.taxCategoryRate}>
+                              {isExemption ? 'Complete tax exemption' :
+                               isRebate ? 'Removes qualifying taxes' : 
+                               `${(taxCategory.rate * 100).toFixed(2)}% tax rate`}
+                            </div>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={styles.emojiDisplay}>
-                      {category.emoji || '—'}
-                    </div>
-                  )}
-                </td>
+                      </div>
+                    );
+                  })}
+                </div>
                 
-                <td style={styles.td}>
-                  <div style={styles.orderControls}>
-                    <button
-                      onClick={() => moveCategory(category.id, -1)}
-                      disabled={i === 0}
-                      style={styles.orderButton}
-                      title="Move Up"
-                    >
-                      ↑
-                    </button>
-                    <span style={styles.orderNumber}>{i + 1}</span>
-                    <button
-                      onClick={() => moveCategory(category.id, 1)}
-                      disabled={i === categories.length - 1}
-                      style={styles.orderButton}
-                      title="Move Down"
-                    >
-                      ↓
-                    </button>
+                {taxCategories.length === 0 && (
+                  <div style={styles.noTaxCategories}>
+                    No tax categories found. Create tax categories in POS Settings first.
                   </div>
-                </td>
-                
-                <td style={styles.td}>
-                  {editCategoryId === category.id ? (
-                    <div style={styles.editActions}>
-                      <button 
-                        onClick={saveEditCategory} 
-                        style={styles.saveButton}
-                        disabled={!editCategoryName.trim()}
+                )}
+
+                {/* Tax Preview Section */}
+                {selectedTaxCategories.length > 0 && (
+                  <div style={styles.taxPreviewSection}>
+                    <div style={styles.previewHeader}>
+                      <h4 style={styles.previewTitle}>Tax Preview</h4>
+                      <button
+                        style={styles.previewToggleButton}
+                        onClick={() => setShowTaxPreview(!showTaxPreview)}
                       >
-                        Save
-                      </button>
-                      <button onClick={cancelEdit} style={styles.cancelButton}>
-                        Cancel
+                        {showTaxPreview ? 'Hide Preview' : 'Show Preview'}
                       </button>
                     </div>
-                  ) : (
-                    <div style={styles.actions}>
-                      <button 
-                        onClick={() => startEditCategory(category)} 
-                        style={styles.editButton}
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        onClick={() => deleteCategory(category.id, category.name)} 
-                        style={styles.deleteButton}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    
+                    {showTaxPreview && (
+                      <div style={styles.previewContent}>
+                        <div style={styles.previewInputGroup}>
+                          <label style={styles.previewLabel}>Sample Item Price:</label>
+                          <input
+                            type="number"
+                            value={previewSamplePrice}
+                            onChange={(e) => setPreviewSamplePrice(parseFloat(e.target.value) || 0)}
+                            style={styles.previewInput}
+                            min="0"
+                            step="0.01"
+                          />
+                        </div>
+                        
+                        {(() => {
+                          const preview = calculateTaxPreview(selectedCategoryForTax.id, previewSamplePrice);
+                          
+                          if (!preview.success) {
+                            return (
+                              <div style={styles.previewError}>
+                                Error calculating preview: {preview.error}
+                              </div>
+                            );
+                          }
+
+                          if (preview.isExempt) {
+                            return (
+                              <div style={styles.previewResult}>
+                                <div style={styles.previewTotal}>This category is tax exempt</div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div style={styles.previewResult}>
+                              <div style={styles.previewBreakdown}>
+                                <div style={styles.previewLine}>
+                                  <span>Item Price:</span>
+                                  <span>${previewSamplePrice.toFixed(2)}</span>
+                                </div>
+                                
+                                {Object.entries(preview.breakdown || {}).map(([taxName, amount]) => (
+                                  <div key={taxName} style={styles.previewTaxLine}>
+                                    <span>{taxName}:</span>
+                                    <span>${amount.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                                
+                                {Object.entries(preview.rebates || {}).map(([rebateName, amount]) => (
+                                  <div key={rebateName} style={styles.previewRebateLine}>
+                                    <span>{rebateName}:</span>
+                                    <span>-${amount.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                                
+                                <div style={styles.previewTotal}>
+                                  <span>Total Tax:</span>
+                                  <span>${preview.taxAmount.toFixed(2)} ({(preview.effectiveRate * 100).toFixed(2)}%)</span>
+                                </div>
+                                
+                                <div style={styles.previewFinal}>
+                                  <span>Final Price:</span>
+                                  <span>${(previewSamplePrice + preview.taxAmount).toFixed(2)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              <div style={styles.modalActions}>
+                <button style={styles.cancelButton} onClick={closeTaxModal}>Cancel</button>
+                <button style={styles.saveButton} onClick={saveTaxAssignments}>Save Tax Settings</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+    );
+  };
+
+  return (
+    <POSAuthWrapper
+      requireBusiness={true}
+      requiredRoles={['manager', 'owner']}
+      componentName="Category Management"
+      onAuthReady={(authState) => {
+        console.log('POSCategories: Auth ready with business:', authState.selectedBusinessId);
+      }}
+    >
+      {renderContent()}
+      
+      {/* Add CSS for animations */}
+      <style>
+        {TavariStyles.keyframes.spin}
+        {TavariStyles.keyframes.fadeIn}
+      </style>
+    </POSAuthWrapper>
   );
 };
 
+// Styles using TavariStyles foundation
 const styles = {
   container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    backgroundColor: '#f8f9fa',
-    padding: '20px',
-    paddingTop: '100px',
-    boxSizing: 'border-box'
+    ...TavariStyles.layout.container,
+    padding: TavariStyles.spacing.xl,
+    paddingTop: TavariStyles.spacing['5xl']
   },
+  
   header: {
-    marginBottom: '30px',
-    textAlign: 'center'
-  },
-  errorBanner: {
-    backgroundColor: '#fee2e2',
-    color: '#dc2626',
-    padding: '15px',
-    borderRadius: '8px',
-    marginBottom: '20px',
-    fontWeight: 'bold'
-  },
-  error: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#dc2626'
-  },
-  loading: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#6b7280'
-  },
-  addSection: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '20px',
-    marginBottom: '30px',
-    border: '2px solid #008080'
-  },
-  sectionTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '20px',
-    paddingBottom: '10px',
-    borderBottom: '2px solid #008080'
-  },
-  form: {
+    marginBottom: TavariStyles.spacing['4xl'],
+    textAlign: 'center',
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px'
-  },
-  formRow: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr',
-    gap: '20px',
-    alignItems: 'start'
-  },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    position: 'relative'
-  },
-  label: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#374151',
-    marginBottom: '8px'
-  },
-  input: {
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px'
-  },
-  colorSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px'
-  },
-  colorInput: {
-    width: '60px',
-    height: '40px',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer'
-  },
-  colorPreview: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px'
-  },
-  colorSwatch: {
-    width: '30px',
-    height: '30px',
-    borderRadius: '50%',
-    border: '2px solid #d1d5db'
-  },
-  colorCode: {
-    fontSize: '12px',
-    color: '#6b7280',
-    fontFamily: 'monospace'
-  },
-  predefinedColors: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(6, 1fr)',
-    gap: '6px'
-  },
-  colorOption: {
-    width: '30px',
-    height: '30px',
-    borderRadius: '50%',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease'
-  },
-  emojiSection: {
-    display: 'flex',
-    gap: '10px',
+    gap: TavariStyles.spacing.lg,
     alignItems: 'center'
   },
+  
+  title: {
+    fontSize: TavariStyles.typography.fontSize['3xl'],
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.gray800,
+    margin: 0
+  },
+  
+  subtitle: {
+    fontSize: TavariStyles.typography.fontSize.lg,
+    color: TavariStyles.colors.gray600,
+    margin: 0,
+    lineHeight: TavariStyles.typography.lineHeight.relaxed
+  },
+  
+  errorBanner: {
+    ...TavariStyles.components.banner.base,
+    ...TavariStyles.components.banner.variants.error,
+    marginBottom: TavariStyles.spacing.xl
+  },
+  
+  loading: {
+    ...TavariStyles.components.loading.container,
+    height: '400px'
+  },
+  
+  spinner: {
+    ...TavariStyles.components.loading.spinner,
+    marginBottom: TavariStyles.spacing.lg
+  },
+  
+  addButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.primary,
+    ...TavariStyles.components.button.sizes.lg
+  },
+  
+  tableContainer: TavariStyles.components.table.container,
+  table: TavariStyles.components.table.table,
+  headerRow: TavariStyles.components.table.headerRow,
+  th: TavariStyles.components.table.th,
+  row: TavariStyles.components.table.row,
+  td: TavariStyles.components.table.td,
+  
+  emptyCell: {
+    padding: TavariStyles.spacing['6xl'],
+    textAlign: 'center',
+    color: TavariStyles.colors.gray500,
+    fontStyle: 'italic',
+    fontSize: TavariStyles.typography.fontSize.lg
+  },
+  
+  categoryPreview: {
+    ...TavariStyles.pos.categoryPreview,
+    width: '48px',
+    height: '48px'
+  },
+  
+  previewEmoji: {
+    fontSize: TavariStyles.typography.fontSize.xl
+  },
+  
+  categoryName: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: TavariStyles.spacing.sm,
+    fontSize: TavariStyles.typography.fontSize.base,
+    fontWeight: TavariStyles.typography.fontWeight.semibold,
+    color: TavariStyles.colors.gray800
+  },
+  
+  nameEmoji: {
+    fontSize: TavariStyles.typography.fontSize.lg
+  },
+  
+  colorDisplay: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: TavariStyles.spacing.md
+  },
+  
+  colorSwatch: {
+    width: '24px',
+    height: '24px',
+    borderRadius: TavariStyles.borderRadius.sm,
+    border: `1px solid ${TavariStyles.colors.gray300}`
+  },
+  
+  colorName: {
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.gray500
+  },
+  
+  colorSelect: TavariStyles.components.form.select,
+  editColorSection: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: TavariStyles.spacing.sm
+  },
+  
+  editEmojiSection: {
+    display: 'flex',
+    gap: TavariStyles.spacing.sm,
+    alignItems: 'center',
+    position: 'relative'
+  },
+  
   emojiDisplay: {
     width: '40px',
     height: '40px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
+    border: `1px solid ${TavariStyles.colors.gray300}`,
+    borderRadius: TavariStyles.borderRadius.md,
     cursor: 'pointer',
-    fontSize: '20px',
-    backgroundColor: 'white'
+    fontSize: TavariStyles.typography.fontSize.xl,
+    backgroundColor: TavariStyles.colors.white,
+    transition: TavariStyles.transitions.normal
   },
+  
   emojiInput: {
-    flex: 1,
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px'
+    ...TavariStyles.components.form.input,
+    width: '60px',
+    textAlign: 'center'
   },
+  
   emojiPicker: {
     position: 'absolute',
     top: '100%',
     left: 0,
     zIndex: 1000,
-    backgroundColor: 'white',
-    border: '2px solid #d1d5db',
-    borderRadius: '8px',
-    padding: '10px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    backgroundColor: TavariStyles.colors.white,
+    border: `1px solid ${TavariStyles.colors.gray300}`,
+    borderRadius: TavariStyles.borderRadius.lg,
+    padding: TavariStyles.spacing.md,
+    boxShadow: TavariStyles.shadows.lg,
     maxWidth: '300px'
   },
+  
   emojiGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(8, 1fr)',
-    gap: '4px'
+    gap: TavariStyles.spacing.xs
   },
+  
   emojiOption: {
-    width: '30px',
-    height: '30px',
+    width: '32px',
+    height: '32px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
-    borderRadius: '4px',
-    fontSize: '16px',
-    transition: 'background-color 0.2s ease'
+    borderRadius: TavariStyles.borderRadius.sm,
+    fontSize: TavariStyles.typography.fontSize.lg,
+    transition: TavariStyles.transitions.normal
   },
-  addButton: {
-    padding: '15px 20px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    alignSelf: 'flex-start'
-  },
-  tableContainer: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    overflow: 'auto',
-    border: '1px solid #e5e7eb'
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '14px'
-  },
-  headerRow: {
-    backgroundColor: '#008080',
-    color: 'white',
-    position: 'sticky',
-    top: 0
-  },
-  th: {
-    padding: '15px 12px',
-    textAlign: 'left',
-    fontWeight: 'bold',
-    borderBottom: '2px solid #006666'
-  },
-  row: {
-    transition: 'background-color 0.2s ease'
-  },
-  td: {
-    padding: '12px',
-    borderBottom: '1px solid #f3f4f6',
-    verticalAlign: 'middle'
-  },
-  emptyCell: {
-    padding: '40px',
-    textAlign: 'center',
-    color: '#6b7280',
-    fontStyle: 'italic'
-  },
-  categoryPreview: {
-    width: '40px',
-    height: '40px',
-    borderRadius: '8px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    border: '2px solid #d1d5db'
-  },
-  previewEmoji: {
-    fontSize: '20px'
-  },
-  categoryName: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#1f2937'
-  },
-  nameEmoji: {
-    fontSize: '18px'
-  },
-  colorDisplay: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px'
-  },
-  editColorSection: {
+  
+  input: TavariStyles.components.form.input,
+  
+  taxSettings: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px'
+    gap: TavariStyles.spacing.sm
   },
-  editEmojiSection: {
-    display: 'flex',
-    gap: '8px',
-    alignItems: 'center',
-    position: 'relative'
+  
+  taxSummary: {
+    fontSize: TavariStyles.typography.fontSize.xs,
+    color: TavariStyles.colors.gray700,
+    maxWidth: '200px',
+    lineHeight: TavariStyles.typography.lineHeight.normal
   },
+  
+  taxButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.warning,
+    ...TavariStyles.components.button.sizes.sm
+  },
+  
   orderControls: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '4px'
+    gap: TavariStyles.spacing.xs
   },
+  
   orderButton: {
-    width: '24px',
-    height: '24px',
-    backgroundColor: '#f3f4f6',
-    border: '1px solid #d1d5db',
-    borderRadius: '4px',
+    width: '28px',
+    height: '28px',
+    backgroundColor: TavariStyles.colors.gray50,
+    border: `1px solid ${TavariStyles.colors.gray300}`,
+    borderRadius: TavariStyles.borderRadius.sm,
     cursor: 'pointer',
-    fontSize: '12px',
+    fontSize: TavariStyles.typography.fontSize.base,
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    transition: TavariStyles.transitions.normal
   },
+  
   orderNumber: {
-    fontSize: '12px',
-    color: '#6b7280',
-    fontWeight: 'bold'
+    fontSize: TavariStyles.typography.fontSize.xs,
+    color: TavariStyles.colors.gray500,
+    fontWeight: TavariStyles.typography.fontWeight.semibold
   },
+  
   actions: {
     display: 'flex',
-    gap: '8px'
+    gap: TavariStyles.spacing.xs
   },
+  
   editActions: {
     display: 'flex',
-    gap: '8px'
+    gap: TavariStyles.spacing.xs
   },
+  
   editButton: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    border: 'none',
-    padding: '6px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.secondary,
+    ...TavariStyles.components.button.sizes.sm
   },
+  
   deleteButton: {
-    backgroundColor: '#dc2626',
-    color: 'white',
-    border: 'none',
-    padding: '6px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.danger,
+    ...TavariStyles.components.button.sizes.sm
   },
+  
   saveButton: {
-    backgroundColor: '#059669',
-    color: 'white',
-    border: 'none',
-    padding: '6px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.success,
+    ...TavariStyles.components.button.sizes.sm
   },
+  
   cancelButton: {
-    backgroundColor: '#6b7280',
-    color: 'white',
+    ...TavariStyles.components.button.base,
+    backgroundColor: TavariStyles.colors.gray500,
+    color: TavariStyles.colors.white,
+    ...TavariStyles.components.button.sizes.sm
+  },
+  
+  // Modal styles
+  modal: TavariStyles.components.modal.overlay,
+  modalContent: {
+    ...TavariStyles.components.modal.content,
+    maxWidth: '700px'
+  },
+  modalHeader: TavariStyles.components.modal.header,
+  modalBody: TavariStyles.components.modal.body,
+  modalActions: TavariStyles.components.modal.footer,
+  
+  modalTitle: {
+    fontSize: TavariStyles.typography.fontSize.xl,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.gray800,
+    margin: 0
+  },
+  
+  closeButton: {
+    backgroundColor: 'transparent',
     border: 'none',
-    padding: '6px 12px',
-    borderRadius: '4px',
+    fontSize: TavariStyles.typography.fontSize['2xl'],
     cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
+    color: TavariStyles.colors.gray500,
+    padding: TavariStyles.spacing.xs
+  },
+  
+  taxDescription: {
+    fontSize: TavariStyles.typography.fontSize.base,
+    color: TavariStyles.colors.gray500,
+    marginBottom: TavariStyles.spacing.lg,
+    lineHeight: TavariStyles.typography.lineHeight.relaxed
+  },
+  
+  taxCategoriesList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: TavariStyles.spacing.sm
+  },
+  
+  taxCategoryItem: {
+    cursor: 'pointer',
+    padding: TavariStyles.spacing.md,
+    borderRadius: TavariStyles.borderRadius.md,
+    border: `2px solid ${TavariStyles.colors.gray300}`,
+    marginBottom: TavariStyles.spacing.sm,
+    transition: TavariStyles.transitions.normal
+  },
+  
+  taxCategoryHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: TavariStyles.spacing.md
+  },
+  
+  taxCategoryInfo: {
+    flex: 1
+  },
+  
+  taxCategoryName: {
+    fontSize: TavariStyles.typography.fontSize.base,
+    fontWeight: TavariStyles.typography.fontWeight.semibold,
+    color: TavariStyles.colors.gray800,
+    display: 'flex',
+    alignItems: 'center',
+    gap: TavariStyles.spacing.sm
+  },
+  
+  taxCategoryRate: {
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.gray500,
+    marginTop: '2px'
+  },
+  
+  rebateBadge: {
+    fontSize: TavariStyles.typography.fontSize.xs,
+    backgroundColor: TavariStyles.colors.warning,
+    color: TavariStyles.colors.white,
+    padding: '2px 6px',
+    borderRadius: TavariStyles.borderRadius.sm,
+    fontWeight: TavariStyles.typography.fontWeight.semibold,
+    textTransform: 'uppercase'
+  },
+  
+  exemptionBadge: {
+    fontSize: TavariStyles.typography.fontSize.xs,
+    backgroundColor: TavariStyles.colors.danger,
+    color: TavariStyles.colors.white,
+    padding: '2px 6px',
+    borderRadius: TavariStyles.borderRadius.sm,
+    fontWeight: TavariStyles.typography.fontWeight.semibold,
+    textTransform: 'uppercase'
+  },
+  
+  primaryBadge: {
+    fontSize: TavariStyles.typography.fontSize.xs,
+    backgroundColor: TavariStyles.colors.success,
+    color: TavariStyles.colors.white,
+    padding: '2px 6px',
+    borderRadius: TavariStyles.borderRadius.sm,
+    fontWeight: TavariStyles.typography.fontWeight.semibold,
+    textTransform: 'uppercase'
+  },
+  
+  noTaxCategories: {
+    textAlign: 'center',
+    color: TavariStyles.colors.gray500,
+    fontStyle: 'italic',
+    padding: TavariStyles.spacing['5xl'],
+    backgroundColor: TavariStyles.colors.gray50,
+    borderRadius: TavariStyles.borderRadius.md
+  },
+  
+  // Tax Preview Styles
+  taxPreviewSection: {
+    marginTop: TavariStyles.spacing.xl,
+    padding: TavariStyles.spacing.lg,
+    backgroundColor: TavariStyles.colors.gray50,
+    borderRadius: TavariStyles.borderRadius.md,
+    border: `1px solid ${TavariStyles.colors.gray200}`
+  },
+  
+  previewHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: TavariStyles.spacing.md
+  },
+  
+  previewTitle: {
+    fontSize: TavariStyles.typography.fontSize.lg,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.gray800,
+    margin: 0
+  },
+  
+  previewToggleButton: {
+    ...TavariStyles.components.button.base,
+    backgroundColor: '#6366f1',
+    color: TavariStyles.colors.white,
+    ...TavariStyles.components.button.sizes.sm
+  },
+  
+  previewContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: TavariStyles.spacing.md
+  },
+  
+  previewInputGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: TavariStyles.spacing.md
+  },
+  
+  previewLabel: {
+    fontSize: TavariStyles.typography.fontSize.base,
+    fontWeight: TavariStyles.typography.fontWeight.semibold,
+    color: TavariStyles.colors.gray700,
+    minWidth: '140px'
+  },
+  
+  previewInput: {
+    ...TavariStyles.components.form.input,
+    width: '100px',
+    padding: TavariStyles.spacing.sm
+  },
+  
+  previewResult: {
+    backgroundColor: TavariStyles.colors.white,
+    padding: TavariStyles.spacing.md,
+    borderRadius: TavariStyles.borderRadius.md,
+    border: `1px solid ${TavariStyles.colors.gray300}`
+  },
+  
+  previewBreakdown: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: TavariStyles.spacing.xs
+  },
+  
+  previewLine: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.base,
+    color: TavariStyles.colors.gray700
+  },
+  
+  previewTaxLine: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.success,
+    paddingLeft: TavariStyles.spacing.md
+  },
+  
+  previewRebateLine: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.danger,
+    paddingLeft: TavariStyles.spacing.md
+  },
+  
+  previewTotal: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.base,
+    fontWeight: TavariStyles.typography.fontWeight.semibold,
+    color: TavariStyles.colors.gray800,
+    paddingTop: TavariStyles.spacing.xs,
+    borderTop: `1px solid ${TavariStyles.colors.gray200}`
+  },
+  
+  previewFinal: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.lg,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.gray800,
+    paddingTop: TavariStyles.spacing.xs,
+    borderTop: `2px solid ${TavariStyles.colors.gray700}`
+  },
+  
+  previewError: {
+    color: TavariStyles.colors.danger,
+    fontStyle: 'italic',
+    padding: TavariStyles.spacing.md,
+    backgroundColor: TavariStyles.colors.errorBg,
+    borderRadius: TavariStyles.borderRadius.sm
   }
 };
 

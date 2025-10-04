@@ -1,0 +1,1010 @@
+[
+  {
+    "policy_name": "Users can access audit logs for their business",
+    "schema_name": "public",
+    "table_name": "audit_logs",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "((business_id IS NULL) OR (business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid()))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "allow_authenticated_insert_own",
+    "schema_name": "public",
+    "table_name": "audit_logs",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      16479
+    ],
+    "using_expression": null,
+    "with_check_expression": "(COALESCE(user_id, auth.uid()) = auth.uid())"
+  },
+  {
+    "policy_name": "Allow owner to create their own business",
+    "schema_name": "public",
+    "table_name": "businesses",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": null,
+    "with_check_expression": "(auth.uid() = created_by)"
+  },
+  {
+    "policy_name": "Allow owner to read their own business",
+    "schema_name": "public",
+    "table_name": "businesses",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(auth.uid() = created_by)",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access AB experiments for their business campaigns",
+    "schema_name": "public",
+    "table_name": "mail_ab_experiments",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mail_campaigns.id\n   FROM mail_campaigns\n  WHERE (mail_campaigns.business_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access audit logs for their business",
+    "schema_name": "public",
+    "table_name": "mail_audit_logs",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access billing for businesses they have roles in",
+    "schema_name": "public",
+    "table_name": "mail_billing",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access bounces for their business",
+    "schema_name": "public",
+    "table_name": "mail_bounces",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access campaign audit for their business",
+    "schema_name": "public",
+    "table_name": "mail_campaign_audit",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access schedules for their business campaigns",
+    "schema_name": "public",
+    "table_name": "mail_campaign_schedules",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mail_campaigns.id\n   FROM mail_campaigns\n  WHERE (mail_campaigns.business_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Block sends to unsubscribed contacts",
+    "schema_name": "public",
+    "table_name": "mail_campaign_sends",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": null,
+    "with_check_expression": "(NOT is_email_unsubscribed(( SELECT mc.business_id\n   FROM mail_campaigns mc\n  WHERE (mc.id = mail_campaign_sends.campaign_id)), ( SELECT c.email\n   FROM mail_contacts c\n  WHERE (c.id = mail_campaign_sends.contact_id))))"
+  },
+  {
+    "policy_name": "Users can access sends for campaigns they own",
+    "schema_name": "public",
+    "table_name": "mail_campaign_sends",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mail_campaigns.id\n   FROM mail_campaigns\n  WHERE (mail_campaigns.business_id IN ( SELECT ur.business_id\n           FROM user_roles ur\n          WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access sends for their business campaigns",
+    "schema_name": "public",
+    "table_name": "mail_campaign_sends",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mail_campaigns.id\n   FROM mail_campaigns\n  WHERE ((mail_campaigns.business_id)::text = (auth.jwt() ->> 'business_id'::text))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access campaigns for businesses they have access to",
+    "schema_name": "public",
+    "table_name": "mail_campaigns",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access campaigns for businesses they have roles in",
+    "schema_name": "public",
+    "table_name": "mail_campaigns",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access campaigns for their business",
+    "schema_name": "public",
+    "table_name": "mail_campaigns",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access consent logs for their business",
+    "schema_name": "public",
+    "table_name": "mail_consent_log",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access communications for their business",
+    "schema_name": "public",
+    "table_name": "mail_contact_communications",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access preference logs for their business",
+    "schema_name": "public",
+    "table_name": "mail_contact_preferences_log",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access segment memberships for their business",
+    "schema_name": "public",
+    "table_name": "mail_contact_segment_memberships",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access segments for their business",
+    "schema_name": "public",
+    "table_name": "mail_contact_segments",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access contacts for businesses they have access to",
+    "schema_name": "public",
+    "table_name": "mail_contacts",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access contacts for businesses they have roles in",
+    "schema_name": "public",
+    "table_name": "mail_contacts",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access contacts for their business",
+    "schema_name": "public",
+    "table_name": "mail_contacts",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access content analytics for their business campaigns",
+    "schema_name": "public",
+    "table_name": "mail_content_analytics",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mail_campaigns.id\n   FROM mail_campaigns\n  WHERE (mail_campaigns.business_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "mail_domains_policy",
+    "schema_name": "public",
+    "table_name": "mail_domains",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "true",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access usage for businesses they have roles in",
+    "schema_name": "public",
+    "table_name": "mail_email_usage",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))"
+  },
+  {
+    "policy_name": "Users can access households for their business",
+    "schema_name": "public",
+    "table_name": "mail_households",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access scheduled campaigns for their business",
+    "schema_name": "public",
+    "table_name": "mail_scheduled_campaigns",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access queue for their business campaigns",
+    "schema_name": "public",
+    "table_name": "mail_sending_queue",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mail_campaigns.id\n   FROM mail_campaigns\n  WHERE (mail_campaigns.business_id IN ( SELECT ur.business_id\n           FROM user_roles ur\n          WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access sending queue for their business campaigns",
+    "schema_name": "public",
+    "table_name": "mail_sending_queue",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mc.id\n   FROM (mail_campaigns mc\n     JOIN user_roles ur ON ((mc.business_id = ur.business_id)))\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access settings for businesses they have access to",
+    "schema_name": "public",
+    "table_name": "mail_settings",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access settings for businesses they have roles in",
+    "schema_name": "public",
+    "table_name": "mail_settings",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access settings for their business",
+    "schema_name": "public",
+    "table_name": "mail_settings",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access subject tests for their business campaigns",
+    "schema_name": "public",
+    "table_name": "mail_subject_tests",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(campaign_id IN ( SELECT mail_campaigns.id\n   FROM mail_campaigns\n  WHERE (mail_campaigns.business_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access unsubscribes for businesses they have access t",
+    "schema_name": "public",
+    "table_name": "mail_unsubscribes",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access unsubscribes for businesses they have roles in",
+    "schema_name": "public",
+    "table_name": "mail_unsubscribes",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT ur.business_id\n   FROM user_roles ur\n  WHERE ((ur.user_id = auth.uid()) AND (ur.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access unsubscribes for their business",
+    "schema_name": "public",
+    "table_name": "mail_unsubscribes",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access their business holiday rules",
+    "schema_name": "public",
+    "table_name": "music_ad_holiday_rules",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Enable insert for authenticated users",
+    "schema_name": "public",
+    "table_name": "music_ad_plays",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      16479
+    ],
+    "using_expression": null,
+    "with_check_expression": "true"
+  },
+  {
+    "policy_name": "Users can insert ad plays for their business",
+    "schema_name": "public",
+    "table_name": "music_ad_plays",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": null,
+    "with_check_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))"
+  },
+  {
+    "policy_name": "Users can access their business schedules",
+    "schema_name": "public",
+    "table_name": "music_ad_schedule",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access their business conflicts",
+    "schema_name": "public",
+    "table_name": "music_ad_schedule_conflicts",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access their business performance data",
+    "schema_name": "public",
+    "table_name": "music_ad_schedule_performance",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access their business time rules",
+    "schema_name": "public",
+    "table_name": "music_ad_time_rules",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(schedule_id IN ( SELECT music_ad_schedule.id\n   FROM music_ad_schedule\n  WHERE (music_ad_schedule.business_id IN ( SELECT business_users.business_id\n           FROM business_users\n          WHERE (business_users.user_id = auth.uid())))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Authenticated users can view network ads",
+    "schema_name": "public",
+    "table_name": "music_ads",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(auth.role() = 'authenticated'::text)",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access their business hours",
+    "schema_name": "public",
+    "table_name": "music_business_hours",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can manage local ads for their business",
+    "schema_name": "public",
+    "table_name": "music_local_ads",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can manage playlist schedules for their business",
+    "schema_name": "public",
+    "table_name": "music_playlist_schedules",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Simple playlist tracks access",
+    "schema_name": "public",
+    "table_name": "music_playlist_tracks",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(EXISTS ( SELECT 1\n   FROM music_playlists\n  WHERE ((music_playlists.id = music_playlist_tracks.playlist_id) AND (music_playlists.business_id = (current_setting('app.current_business_id'::text, true))::uuid))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can manage playlist tracks for their business",
+    "schema_name": "public",
+    "table_name": "music_playlist_tracks",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(playlist_id IN ( SELECT music_playlists.id\n   FROM music_playlists\n  WHERE (music_playlists.business_id IN ( SELECT user_roles.business_id\n           FROM user_roles\n          WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can manage playlists for their business",
+    "schema_name": "public",
+    "table_name": "music_playlists",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can manage settings for their business",
+    "schema_name": "public",
+    "table_name": "music_settings",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can manage system logs for their business",
+    "schema_name": "public",
+    "table_name": "music_system_logs",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can delete tracks for their business",
+    "schema_name": "public",
+    "table_name": "music_tracks",
+    "command": "d",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can insert tracks for their business",
+    "schema_name": "public",
+    "table_name": "music_tracks",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": null,
+    "with_check_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))"
+  },
+  {
+    "policy_name": "Users can update tracks for their business",
+    "schema_name": "public",
+    "table_name": "music_tracks",
+    "command": "w",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))"
+  },
+  {
+    "policy_name": "Users can view tracks for their business",
+    "schema_name": "public",
+    "table_name": "music_tracks",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "audit_logs_business_policy",
+    "schema_name": "public",
+    "table_name": "pos_audit_logs",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "User can access their own cart items",
+    "schema_name": "public",
+    "table_name": "pos_cart_items",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(auth.uid() = user_id)",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "cart_items_business_policy",
+    "schema_name": "public",
+    "table_name": "pos_cart_items",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "custom_items_business_policy",
+    "schema_name": "public",
+    "table_name": "pos_custom_items",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access their business's inventory",
+    "schema_name": "public",
+    "table_name": "pos_inventory",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(EXISTS ( SELECT 1\n   FROM business_users\n  WHERE ((business_users.user_id = auth.uid()) AND (business_users.business_id = pos_inventory.business_id))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "loyalty_accounts_business_policy",
+    "schema_name": "public",
+    "table_name": "pos_loyalty_accounts",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "loyalty_settings_business_policy",
+    "schema_name": "public",
+    "table_name": "pos_loyalty_settings",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "loyalty_transactions_business_policy",
+    "schema_name": "public",
+    "table_name": "pos_loyalty_transactions",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "qr_scans_business_policy",
+    "schema_name": "public",
+    "table_name": "pos_qr_scans",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT business_users.business_id\n   FROM business_users\n  WHERE (business_users.user_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can insert receipt logs for their business",
+    "schema_name": "public",
+    "table_name": "pos_receipt_logs",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": null,
+    "with_check_expression": "(business_id = auth.uid())"
+  },
+  {
+    "policy_name": "Users can view receipt logs for their business",
+    "schema_name": "public",
+    "table_name": "pos_receipt_logs",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id = auth.uid())",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can view their business reprint logs",
+    "schema_name": "public",
+    "table_name": "pos_receipt_logs",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(EXISTS ( SELECT 1\n   FROM business_users\n  WHERE ((business_users.user_id = auth.uid()) AND (business_users.business_id = pos_receipt_logs.business_id))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access refund items for their business",
+    "schema_name": "public",
+    "table_name": "pos_refund_items",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access refunds for their business",
+    "schema_name": "public",
+    "table_name": "pos_refunds",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can insert sale items for their business",
+    "schema_name": "public",
+    "table_name": "pos_sale_items",
+    "command": "a",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": null,
+    "with_check_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))"
+  },
+  {
+    "policy_name": "Users can view sale items for their business",
+    "schema_name": "public",
+    "table_name": "pos_sale_items",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Access saved orders by user or business",
+    "schema_name": "public",
+    "table_name": "pos_saved_orders",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "((saved_by = auth.uid()) OR (EXISTS ( SELECT 1\n   FROM business_users\n  WHERE ((business_users.user_id = auth.uid()) AND (business_users.business_id = pos_saved_orders.business_id)))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access saved orders for their business",
+    "schema_name": "public",
+    "table_name": "pos_saved_orders",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access stations for their business",
+    "schema_name": "public",
+    "table_name": "pos_stations",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT businesses.id\n   FROM businesses\n  WHERE (businesses.id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access tab items for their business",
+    "schema_name": "public",
+    "table_name": "pos_tab_items",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access tab items for their business tabs",
+    "schema_name": "public",
+    "table_name": "pos_tab_items",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(tab_id IN ( SELECT t.id\n   FROM pos_tabs t\n  WHERE (EXISTS ( SELECT 1\n           FROM user_roles ur\n          WHERE ((ur.user_id = auth.uid()) AND (ur.business_id = t.business_id) AND (ur.active = true))))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access tab payments for their business",
+    "schema_name": "public",
+    "table_name": "pos_tab_payments",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(tab_id IN ( SELECT pos_tabs.id\n   FROM pos_tabs\n  WHERE (pos_tabs.business_id = auth.uid())))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can access tabs for their business",
+    "schema_name": "public",
+    "table_name": "pos_tabs",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Managers can modify tax rules",
+    "schema_name": "public",
+    "table_name": "pos_tax_rules",
+    "command": "*",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.role = ANY (ARRAY['manager'::text, 'admin'::text])) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Users can view tax rules for their business",
+    "schema_name": "public",
+    "table_name": "pos_tax_rules",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      0
+    ],
+    "using_expression": "(business_id IN ( SELECT user_roles.business_id\n   FROM user_roles\n  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.active = true))))",
+    "with_check_expression": null
+  },
+  {
+    "policy_name": "Allow read for authenticated users",
+    "schema_name": "public",
+    "table_name": "user_roles",
+    "command": "r",
+    "is_permissive": true,
+    "roles": [
+      16479
+    ],
+    "using_expression": "true",
+    "with_check_expression": null
+  }
+]

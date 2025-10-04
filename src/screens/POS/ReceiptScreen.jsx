@@ -1,686 +1,721 @@
-// screens/POS/ReceiptScreen.jsx
+// screens/POS/ReceiptScreen.jsx - UPDATED WITH PROPER NAVIGATION
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
-import { useBusinessContext } from '../../contexts/BusinessContext';
-import { 
-  generateReceiptHTML, 
-  generateEmailReceiptHTML, 
-  printReceipt, 
-  RECEIPT_TYPES 
-} from '../../helpers/ReceiptBuilder';
-import { logAction } from '../../helpers/posAudit';
+import { TavariStyles } from '../../utils/TavariStyles';
+import { usePOSAuth } from '../../hooks/usePOSAuth';
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
+import { generateReceiptHTML, printReceipt, RECEIPT_TYPES } from '../../helpers/ReceiptBuilder';
 
 const ReceiptScreen = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { selectedBusinessId } = useBusinessContext();
   
-  const [saleData, setSaleData] = useState(null);
-  const [businessSettings, setBusinessSettings] = useState({});
-  const [loading, setLoading] = useState(false);
+  // Authentication
+  const auth = usePOSAuth({
+    requiredRoles: ['cashier', 'manager', 'owner'],
+    requireBusiness: true,
+    componentName: 'ReceiptScreen'
+  });
+  
+  // Tax calculations
+  const taxCalc = useTaxCalculations(auth.selectedBusinessId);
+  
+  // State
+  const [receiptData, setReceiptData] = useState(null);
+  const [businessInfo, setBusinessInfo] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [emailAddress, setEmailAddress] = useState('');
-  const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailSending, setEmailSending] = useState(false);
-  const [receiptGenerated, setReceiptGenerated] = useState(false);
-
-  // Get sale data from navigation state
-  const receivedSaleData = location.state?.saleData;
-
+  
+  // Get sale data from navigation or session storage
+  const saleData = location.state?.saleData;
+  
   useEffect(() => {
-    if (!selectedBusinessId) {
-      setError('No business selected');
-      return;
-    }
-
-    if (!receivedSaleData) {
-      setError('No sale data provided');
-      return;
-    }
-
+    if (!auth.isReady) return;
+    
     loadReceiptData();
-  }, [selectedBusinessId, receivedSaleData]);
-
+  }, [auth.isReady, saleData]);
+  
   const loadReceiptData = async () => {
     try {
       setLoading(true);
-
-      // Fetch business settings for receipt generation
-      const { data: settings, error: settingsError } = await supabase
-        .from('pos_settings')
-        .select('*')
-        .eq('business_id', selectedBusinessId)
-        .single();
-
-      if (settingsError) throw settingsError;
-
-      // Enhanced business settings for receipt
-      const enhancedSettings = {
-        ...settings,
-        business_name: 'Your Business Name', // This should come from business table
-        business_address: '123 Main St, City, Province',
-        business_phone: '(555) 123-4567',
-        tax_number: 'HST123456789'
-      };
-
-      setBusinessSettings(enhancedSettings);
-      setSaleData(receivedSaleData);
-
-      // Pre-fill email if loyalty customer
-      if (receivedSaleData.loyaltyCustomer?.customer_email) {
-        setEmailAddress(receivedSaleData.loyaltyCustomer.customer_email);
-      }
-
-      // Auto-print if enabled in settings
-      if (enhancedSettings.auto_print_receipt) {
-        handlePrintReceipt();
-      }
-
-      // Auto-email if enabled and email available
-      if (enhancedSettings.auto_email_receipt && receivedSaleData.loyaltyCustomer?.customer_email) {
-        handleEmailReceipt(receivedSaleData.loyaltyCustomer.customer_email);
-      }
-
-      await logAction({
-        action: 'receipt_screen_opened',
-        context: 'ReceiptScreen',
-        metadata: {
-          sale_id: receivedSaleData.sale_id,
-          sale_number: receivedSaleData.sale_number,
-          total_amount: receivedSaleData.final_total
+      
+      // Try to get receipt data from navigation first
+      let receiptInfo = null;
+      
+      if (saleData?.receipt_id) {
+        // Load from database using receipt_id
+        const { data: receipt, error: receiptError } = await supabase
+          .from('pos_receipts')
+          .select('*')
+          .eq('id', saleData.receipt_id)
+          .single();
+          
+        if (!receiptError) {
+          receiptInfo = receipt;
         }
-      });
-
+      }
+      
+      // Fallback to session storage
+      if (!receiptInfo) {
+        const sessionData = sessionStorage.getItem('lastSaleData');
+        if (sessionData) {
+          const parsed = JSON.parse(sessionData);
+          receiptInfo = {
+            ...parsed,
+            items: parsed.items || [],
+            payments: parsed.payments || []
+          };
+        }
+      }
+      
+      if (!receiptInfo) {
+        throw new Error('No receipt data found');
+      }
+      
+      setReceiptData(receiptInfo);
+      
+      // Load business information
+      await loadBusinessInfo();
+      
     } catch (err) {
-      console.error('Error loading receipt data:', err);
+      console.error('Error loading receipt:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
-
-  const handlePrintReceipt = (receiptType = RECEIPT_TYPES.STANDARD) => {
+  
+  const loadBusinessInfo = async () => {
     try {
-      const receiptHTML = generateReceiptHTML(saleData, receiptType, businessSettings);
-      printReceipt(receiptHTML);
-      setReceiptGenerated(true);
-
-      logAction({
-        action: 'receipt_printed',
-        context: 'ReceiptScreen',
-        metadata: {
-          sale_id: saleData.sale_id,
-          receipt_type: receiptType,
-          print_method: 'browser'
-        }
-      });
-
+      const { data: business, error } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('id', auth.selectedBusinessId)
+        .single();
+        
+      if (error) throw error;
+      
+      setBusinessInfo(business);
     } catch (err) {
-      console.error('Print receipt error:', err);
-      setError('Failed to print receipt');
+      console.error('Error loading business info:', err);
+      // Set defaults
+      setBusinessInfo({
+        name: 'Business Name',
+        business_address: '123 Main St',
+        business_city: 'City',
+        business_state: 'ON',
+        business_postal: 'N1A 1A1'
+      });
     }
   };
-
-  const handleEmailReceipt = async (email = emailAddress) => {
-    if (!email || !email.includes('@')) {
-      setError('Please enter a valid email address');
+  
+  const handlePrintReceipt = (type = 'standard') => {
+    if (!receiptData || !businessInfo) {
+      alert('Receipt data not ready');
       return;
     }
-
-    setEmailSending(true);
-    setError(null);
-
+    
     try {
-      const emailHTML = generateEmailReceiptHTML(saleData, businessSettings);
+      // Format business settings for ReceiptBuilder
+      const businessSettings = {
+        business_name: businessInfo.name,
+        business_address: businessInfo.business_address || businessInfo.address,
+        business_city: businessInfo.business_city || businessInfo.city,
+        business_state: businessInfo.business_state || businessInfo.state || 'ON',
+        business_postal: businessInfo.business_postal || businessInfo.postal_code,
+        business_phone: businessInfo.business_phone || businessInfo.phone,
+        business_email: businessInfo.business_email || businessInfo.email,
+        tax_number: businessInfo.tax_number || businessInfo.hst_number,
+        timezone: businessInfo.timezone || 'America/Toronto',
+        loyalty_mode: businessInfo.loyalty_mode || 'points',
+        earn_rate_percentage: businessInfo.earn_rate_percentage || 3
+      };
       
-      // Here you would integrate with your email service (SendGrid, etc.)
-      // For now, we'll simulate the email sending
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Log the email in database
-      const { error: emailLogError } = await supabase
-        .from('pos_receipts')
-        .insert({
-          business_id: selectedBusinessId,
-          sale_id: saleData.sale_id,
-          total: saleData.final_total,
-          items: saleData.items || [],
-          email_sent_to: email,
-          receipt_type: 'email',
-          created_at: new Date().toISOString()
-        });
-
-      if (emailLogError) console.warn('Email log error:', emailLogError);
-
-      await logAction({
-        action: 'receipt_emailed',
-        context: 'ReceiptScreen',
-        metadata: {
-          sale_id: saleData.sale_id,
-          email_address: email,
-          receipt_type: 'email'
-        }
-      });
-
-      setShowEmailModal(false);
-      setEmailAddress('');
-      alert('Receipt emailed successfully!');
-
-    } catch (err) {
-      console.error('Email receipt error:', err);
-      setError('Failed to send email receipt');
-    } finally {
-      setEmailSending(false);
-    }
-  };
-
-  const handleNewSale = () => {
-    navigate('/dashboard/pos/register');
-  };
-
-  const handleReprintReceipt = async (reason = 'Customer Request') => {
-    try {
+      // Format sale data for ReceiptBuilder
+      const formattedSaleData = {
+        sale_number: receiptData.receipt_number || receiptData.sale_number || 'N/A',
+        created_at: receiptData.created_at || new Date().toISOString(),
+        items: receiptData.items || [],
+        subtotal: receiptData.subtotal || 0,
+        final_total: receiptData.total || receiptData.final_total || 0,
+        tax_amount: receiptData.tax_amount || receiptData.final_tax_amount || 0,
+        payments: receiptData.payment_methods || receiptData.payments || [],
+        tip_amount: receiptData.tip_amount || 0,
+        change_given: receiptData.change_given || 0,
+        discount_amount: receiptData.discount_amount || 0,
+        loyalty_redemption: receiptData.loyalty_redemption || 0,
+        aggregated_taxes: receiptData.aggregated_taxes || {},
+        aggregated_rebates: receiptData.aggregated_rebates || {},
+        loyaltyCustomer: receiptData.customer_name ? {
+          customer_name: receiptData.customer_name,
+          customer_email: receiptData.customer_email,
+          customer_phone: receiptData.customer_phone,
+          balance: receiptData.loyalty_balance || 0
+        } : null
+      };
+      
+      // Determine receipt type
+      let receiptType = RECEIPT_TYPES.STANDARD;
+      switch (type) {
+        case 'gift':
+          receiptType = RECEIPT_TYPES.GIFT;
+          break;
+        case 'kitchen':
+          receiptType = RECEIPT_TYPES.KITCHEN;
+          break;
+        case 'reprint':
+          receiptType = RECEIPT_TYPES.REPRINT;
+          break;
+        default:
+          receiptType = RECEIPT_TYPES.STANDARD;
+      }
+      
+      // Generate and print receipt
       const receiptHTML = generateReceiptHTML(
-        saleData, 
-        RECEIPT_TYPES.REPRINT, 
+        formattedSaleData, 
+        receiptType, 
         businessSettings,
-        { reprintReason: reason }
+        type === 'reprint' ? { reprintReason: 'Customer Request' } : {}
       );
+      
       printReceipt(receiptHTML);
-
-      // Log the reprint
-      await logAction({
-        action: 'receipt_reprinted',
-        context: 'ReceiptScreen',
-        metadata: {
-          sale_id: saleData.sale_id,
-          reprint_reason: reason,
-          original_receipt_date: saleData.created_at
-        }
-      });
-
+      
     } catch (err) {
-      console.error('Reprint receipt error:', err);
-      setError('Failed to reprint receipt');
+      console.error('Error printing receipt:', err);
+      alert('Error printing receipt. Please try again.');
     }
   };
-
-  if (loading) {
+  
+  const handleEmailReceipt = () => {
+    const email = prompt('Enter email address:');
+    if (email) {
+      // TODO: Integrate with actual email service
+      console.log(`Emailing receipt to: ${email}`);
+      alert('Receipt email sent!');
+    }
+  };
+  
+  const handleTextReceipt = () => {
+    const phone = prompt('Enter phone number:');
+    if (phone) {
+      // TODO: Integrate with SMS service
+      console.log(`Texting receipt to: ${phone}`);
+      alert('Receipt text sent!');
+    }
+  };
+  
+  const handleNewSale = () => {
+    // Clear any stored sale data
+    sessionStorage.removeItem('lastSaleData');
+    sessionStorage.removeItem('currentCart');
+    sessionStorage.removeItem('cartItems');
+    
+    // Determine where to go based on where we came from
+    const fromState = location.state?.from;
+    
+    if (fromState === 'saved_carts') {
+      // If we came from saved carts, go back there
+      navigate('/dashboard/pos/saved-carts');
+    } else if (fromState === 'tabs') {
+      // If we came from tab management, go back there
+      navigate('/dashboard/pos/tabs');
+    } else {
+      // Default: go back to the main register screen
+      navigate('/dashboard/pos/register');
+    }
+  };
+  
+  // Loading state
+  if (!auth.isReady || loading || taxCalc.loading) {
     return (
       <div style={styles.container}>
-        <div style={styles.loading}>Loading receipt...</div>
+        <div style={styles.loading}>
+          <div style={TavariStyles.components.loading.spinner}></div>
+          <div>Loading receipt...</div>
+          <style>{TavariStyles.keyframes.spin}</style>
+        </div>
       </div>
     );
   }
-
-  if (error) {
+  
+  // Error state
+  if (error || !receiptData) {
     return (
       <div style={styles.container}>
         <div style={styles.error}>
-          <h3>Error</h3>
-          <p>{error}</p>
-          <button style={styles.button} onClick={handleNewSale}>
-            Start New Sale
+          <h3>Receipt Not Found</h3>
+          <p>{error || 'No receipt data available'}</p>
+          <button 
+            style={styles.button}
+            onClick={handleNewSale}
+          >
+            Return to POS
           </button>
         </div>
       </div>
     );
   }
-
-  if (!saleData) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.error}>
-          <h3>No Receipt Data</h3>
-          <p>Sale information not found</p>
-          <button style={styles.button} onClick={handleNewSale}>
-            Start New Sale
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  
   return (
     <div style={styles.container}>
+      {/* Header */}
       <div style={styles.header}>
-        <h2>🎉 Sale Complete!</h2>
-        <p>Sale #{saleData.sale_number} - ${(saleData.final_total || 0).toFixed(2)}</p>
+        <h1>Sale Complete!</h1>
+        <p>Receipt #{receiptData.receipt_number || 'N/A'}</p>
+        <p>Total: ${taxCalc.applyCashRounding(receiptData.total || 0).toFixed(2)}</p>
       </div>
-
-      <div style={styles.content}>
-        {/* Sale Summary */}
-        <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>Transaction Summary</h3>
-          <div style={styles.summaryGrid}>
-            <div style={styles.summaryRow}>
-              <span>Items:</span>
-              <span>{saleData.item_count || 0}</span>
-            </div>
-            <div style={styles.summaryRow}>
-              <span>Subtotal:</span>
-              <span>${(saleData.subtotal || 0).toFixed(2)}</span>
-            </div>
-            {saleData.discount_amount > 0 && (
-              <div style={styles.summaryRow}>
-                <span>Discount:</span>
-                <span>-${saleData.discount_amount.toFixed(2)}</span>
-              </div>
-            )}
-            {saleData.loyalty_redemption > 0 && (
-              <div style={styles.summaryRow}>
-                <span>Loyalty Credit:</span>
-                <span>-${saleData.loyalty_redemption.toFixed(2)}</span>
-              </div>
-            )}
-            <div style={styles.summaryRow}>
-              <span>Tax:</span>
-              <span>${(saleData.tax_amount || 0).toFixed(2)}</span>
-            </div>
-            {saleData.tip_amount > 0 && (
-              <div style={styles.summaryRow}>
-                <span>Tip:</span>
-                <span>${saleData.tip_amount.toFixed(2)}</span>
-              </div>
-            )}
-            <div style={styles.summaryRowTotal}>
-              <span>Total:</span>
-              <span>${(saleData.final_total || 0).toFixed(2)}</span>
-            </div>
-          </div>
+      
+      {/* Business Info */}
+      <div style={styles.section}>
+        <h3>Business Information</h3>
+        <div style={styles.businessInfo}>
+          <p><strong>{businessInfo?.name || 'Business Name'}</strong></p>
+          <p>{businessInfo?.business_address || '123 Main St'}</p>
+          <p>{businessInfo?.business_city || 'City'}, {businessInfo?.business_state || 'ON'} {businessInfo?.business_postal || 'N1A 1A1'}</p>
         </div>
-
-        {/* Payment Summary */}
-        {saleData.payments && saleData.payments.length > 0 && (
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Payment Methods</h3>
-            <div style={styles.paymentsList}>
-              {saleData.payments.map((payment, index) => (
-                <div key={index} style={styles.paymentRow}>
-                  <span style={styles.paymentMethod}>
-                    {payment.custom_method_name || payment.method}
+      </div>
+      
+      {/* Items */}
+      <div style={styles.section}>
+        <h3>Items Purchased</h3>
+        <div style={styles.itemsList}>
+          {receiptData.items && receiptData.items.length > 0 ? (
+            receiptData.items.map((item, index) => (
+              <div key={index} style={styles.item}>
+                <div style={styles.itemRow}>
+                  <span style={styles.itemName}>{item.name}</span>
+                  <span style={styles.itemPrice}>
+                    ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}
                   </span>
-                  <span style={styles.paymentAmount}>
-                    ${payment.amount.toFixed(2)}
-                  </span>
+                </div>
+                <div style={styles.itemDetails}>
+                  <span>${(item.price || 0).toFixed(2)} × {item.quantity || 1}</span>
+                </div>
+                {item.modifiers && item.modifiers.length > 0 && (
+                  <div style={styles.modifiers}>
+                    {item.modifiers.map((mod, modIndex) => (
+                      <div key={modIndex} style={styles.modifier}>
+                        + {mod.name} ${(mod.price || 0).toFixed(2)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <p>No items found</p>
+          )}
+        </div>
+      </div>
+      
+      {/* Tax & Rebate Breakdown */}
+      {((receiptData.aggregated_taxes && Object.keys(receiptData.aggregated_taxes).length > 0) || 
+        (receiptData.aggregated_rebates && Object.keys(receiptData.aggregated_rebates).length > 0)) && (
+        <div style={styles.section}>
+          <h3>Tax & Rebate Breakdown</h3>
+          
+          {/* Taxes */}
+          {receiptData.aggregated_taxes && Object.keys(receiptData.aggregated_taxes).length > 0 && (
+            <div style={styles.taxSection}>
+              <h4 style={styles.taxSubtitle}>Taxes Applied</h4>
+              {Object.entries(receiptData.aggregated_taxes).map(([taxName, amount]) => (
+                <div key={taxName} style={styles.taxRow}>
+                  <span>{taxName}:</span>
+                  <span>${taxCalc.formatTaxAmount(amount)}</span>
                 </div>
               ))}
-              {saleData.change_given > 0 && (
-                <div style={styles.paymentRow}>
-                  <span style={styles.changeLabel}>Change Given:</span>
-                  <span style={styles.changeAmount}>
-                    ${saleData.change_given.toFixed(2)}
-                  </span>
-                </div>
-              )}
             </div>
-          </div>
-        )}
-
-        {/* Receipt Options */}
-        <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>Receipt Options</h3>
-          <div style={styles.receiptOptions}>
-            <button
-              style={styles.receiptButton}
-              onClick={() => handlePrintReceipt(RECEIPT_TYPES.STANDARD)}
-            >
-              🖨️ Print Receipt
-            </button>
-            
-            <button
-              style={styles.receiptButton}
-              onClick={() => handlePrintReceipt(RECEIPT_TYPES.GIFT)}
-            >
-              🎁 Print Gift Receipt
-            </button>
-            
-            <button
-              style={styles.receiptButton}
-              onClick={() => handlePrintReceipt(RECEIPT_TYPES.KITCHEN)}
-            >
-              🍽️ Print Kitchen Receipt
-            </button>
-            
-            <button
-              style={styles.receiptButton}
-              onClick={() => setShowEmailModal(true)}
-            >
-              📧 Email Receipt
-            </button>
-            
-            <button
-              style={styles.receiptButton}
-              onClick={() => handleReprintReceipt()}
-            >
-              🔄 Reprint Receipt
-            </button>
-            
-            <button
-              style={styles.receiptButtonSecondary}
-              onClick={handleNewSale}
-            >
-              ❌ No Receipt
-            </button>
-          </div>
-        </div>
-
-        {/* Customer Information */}
-        {saleData.loyaltyCustomer && (
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Customer Information</h3>
-            <div style={styles.customerInfo}>
-              <div style={styles.customerName}>
-                {saleData.loyaltyCustomer.customer_name}
-              </div>
-              {saleData.loyaltyCustomer.customer_email && (
-                <div style={styles.customerDetail}>
-                  📧 {saleData.loyaltyCustomer.customer_email}
+          )}
+          
+          {/* Rebates */}
+          {receiptData.aggregated_rebates && Object.keys(receiptData.aggregated_rebates).length > 0 && (
+            <div style={styles.rebateSection}>
+              <h4 style={styles.rebateSubtitle}>Rebates Applied</h4>
+              {Object.entries(receiptData.aggregated_rebates).map(([rebateName, amount]) => (
+                <div key={rebateName} style={styles.rebateRow}>
+                  <span>{rebateName}:</span>
+                  <span>-${taxCalc.formatTaxAmount(amount)}</span>
                 </div>
-              )}
-              {saleData.loyaltyCustomer.customer_phone && (
-                <div style={styles.customerDetail}>
-                  📞 {saleData.loyaltyCustomer.customer_phone}
-                </div>
-              )}
-              <div style={styles.loyaltyEarned}>
-                💰 Earned: ${((saleData.subtotal || 0) * (businessSettings.redemption_rate || 0.01)).toFixed(2)}
-              </div>
+              ))}
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Email Modal */}
-      {showEmailModal && (
-        <div style={styles.modal}>
-          <div style={styles.modalContent}>
-            <h3>Email Receipt</h3>
-            <p>Enter email address to send receipt:</p>
-            <input
-              type="email"
-              value={emailAddress}
-              onChange={(e) => setEmailAddress(e.target.value)}
-              placeholder="customer@example.com"
-              style={styles.emailInput}
-              autoFocus
-            />
-            {error && (
-              <div style={styles.modalError}>{error}</div>
-            )}
-            <div style={styles.modalActions}>
-              <button
-                style={styles.cancelButton}
-                onClick={() => {
-                  setShowEmailModal(false);
-                  setError(null);
-                }}
-                disabled={emailSending}
-              >
-                Cancel
-              </button>
-              <button
-                style={styles.sendButton}
-                onClick={() => handleEmailReceipt()}
-                disabled={emailSending || !emailAddress}
-              >
-                {emailSending ? 'Sending...' : 'Send Email'}
-              </button>
-            </div>
+          )}
+          
+          <div style={styles.netTaxRow}>
+            <span>Net Tax:</span>
+            <span>${taxCalc.formatTaxAmount(receiptData.tax_amount || 0)}</span>
           </div>
         </div>
       )}
 
-      {/* Action Buttons */}
+      {/* Totals */}
+      <div style={styles.section}>
+        <h3>Transaction Summary</h3>
+        <div style={styles.totals}>
+          <div style={styles.totalRow}>
+            <span>Subtotal:</span>
+            <span>${taxCalc.formatTaxAmount(receiptData.subtotal || 0)}</span>
+          </div>
+          {receiptData.discount_amount > 0 && (
+            <div style={styles.totalRow}>
+              <span>Discount:</span>
+              <span>-${taxCalc.formatTaxAmount(receiptData.discount_amount)}</span>
+            </div>
+          )}
+          {receiptData.loyalty_redemption > 0 && (
+            <div style={styles.totalRow}>
+              <span>Loyalty Credit:</span>
+              <span>-${taxCalc.formatTaxAmount(receiptData.loyalty_redemption)}</span>
+            </div>
+          )}
+          <div style={styles.totalRow}>
+            <span>Tax:</span>
+            <span>${taxCalc.formatTaxAmount(receiptData.tax_amount || 0)}</span>
+          </div>
+          {receiptData.tip_amount > 0 && (
+            <div style={styles.totalRow}>
+              <span>Tip:</span>
+              <span>${taxCalc.formatTaxAmount(receiptData.tip_amount)}</span>
+            </div>
+          )}
+          <div style={styles.totalRowFinal}>
+            <span>Total:</span>
+            <span>${taxCalc.applyCashRounding(receiptData.total || 0).toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* Payment Methods */}
+      {receiptData.payment_methods && receiptData.payment_methods.length > 0 && (
+        <div style={styles.section}>
+          <h3>Payment Methods</h3>
+          <div style={styles.payments}>
+            {receiptData.payment_methods.map((payment, index) => (
+              <div key={index} style={styles.paymentRow}>
+                <span>{payment.method || payment.payment_method}</span>
+                <span>${(payment.amount || 0).toFixed(2)}</span>
+              </div>
+            ))}
+            {receiptData.change_given > 0 && (
+              <div style={styles.paymentRow}>
+                <span>Change Given:</span>
+                <span>${(receiptData.change_given || 0).toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Customer Info */}
+      {receiptData.customer_name && (
+        <div style={styles.section}>
+          <h3>Customer Information</h3>
+          <div style={styles.customerInfo}>
+            <p><strong>{receiptData.customer_name}</strong></p>
+            {receiptData.customer_email && <p>Email: {receiptData.customer_email}</p>}
+            {receiptData.customer_phone && <p>Phone: {receiptData.customer_phone}</p>}
+          </div>
+        </div>
+      )}
+      
+      {/* Receipt Options */}
+      <div style={styles.section}>
+        <h3>Receipt Options</h3>
+        <div style={styles.receiptOptions}>
+          <button 
+            style={styles.receiptButton}
+            onClick={() => handlePrintReceipt('standard')}
+          >
+            Print Receipt
+          </button>
+          
+          <button 
+            style={styles.receiptButton}
+            onClick={() => handlePrintReceipt('gift')}
+          >
+            Gift Receipt
+          </button>
+          
+          <button 
+            style={styles.receiptButton}
+            onClick={() => handlePrintReceipt('kitchen')}
+          >
+            Kitchen Receipt
+          </button>
+          
+          <button 
+            style={styles.receiptButton}
+            onClick={handleEmailReceipt}
+          >
+            Email Receipt
+          </button>
+          
+          <button 
+            style={styles.receiptButton}
+            onClick={handleTextReceipt}
+          >
+            Text Receipt
+          </button>
+          
+          <button 
+            style={styles.receiptButtonSecondary}
+            onClick={handleNewSale}
+          >
+            No Receipt
+          </button>
+        </div>
+      </div>
+      
+      {/* Continue Button */}
       <div style={styles.actions}>
-        <button
+        <button 
           style={styles.newSaleButton}
           onClick={handleNewSale}
         >
-          Start New Sale
+          {location.state?.from === 'saved_carts' 
+            ? 'Back to Saved Carts' 
+            : location.state?.from === 'tabs'
+            ? 'Back to Tabs'
+            : 'Start New Sale'
+          }
         </button>
       </div>
     </div>
   );
 };
 
+// Styles
 const styles = {
   container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    backgroundColor: '#f8f9fa',
-    padding: '20px',
-    paddingTop: '100px',
-    boxSizing: 'border-box'
+    ...TavariStyles.layout.container,
+    maxWidth: '800px',
+    margin: '0 auto',
+    padding: TavariStyles.spacing.xl
   },
-  header: {
-    marginBottom: '30px',
+  
+  loading: {
+    ...TavariStyles.components.loading.container,
+    textAlign: 'center'
+  },
+  
+  error: {
     textAlign: 'center',
-    backgroundColor: '#008080',
-    color: 'white',
-    padding: '20px',
-    borderRadius: '8px'
+    padding: TavariStyles.spacing['4xl']
   },
-  content: {
-    flex: 1,
-    overflowY: 'auto',
-    marginBottom: '20px'
+  
+  header: {
+    textAlign: 'center',
+    marginBottom: TavariStyles.spacing['3xl'],
+    padding: TavariStyles.spacing.xl,
+    backgroundColor: TavariStyles.colors.success,
+    color: TavariStyles.colors.white,
+    borderRadius: TavariStyles.borderRadius.lg
   },
+  
   section: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '20px',
-    marginBottom: '20px',
-    border: '1px solid #e5e7eb'
+    ...TavariStyles.layout.card,
+    padding: TavariStyles.spacing.xl,
+    marginBottom: TavariStyles.spacing.xl
   },
-  sectionTitle: {
-    margin: '0 0 15px 0',
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    borderBottom: '2px solid #008080',
-    paddingBottom: '8px'
+  
+  businessInfo: {
+    textAlign: 'center',
+    lineHeight: 1.6
   },
-  summaryGrid: {
+  
+  itemsList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px'
+    gap: TavariStyles.spacing.md
   },
-  summaryRow: {
+  
+  item: {
+    padding: TavariStyles.spacing.md,
+    backgroundColor: TavariStyles.colors.gray50,
+    borderRadius: TavariStyles.borderRadius.md,
+    border: `1px solid ${TavariStyles.colors.gray200}`
+  },
+  
+  itemRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    fontSize: '16px',
-    color: '#1f2937'
+    alignItems: 'center',
+    marginBottom: TavariStyles.spacing.sm
   },
-  summaryRowTotal: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: '20px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    paddingTop: '12px',
-    borderTop: '2px solid #008080',
-    marginTop: '8px'
+  
+  itemName: {
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    fontSize: TavariStyles.typography.fontSize.lg
   },
-  paymentsList: {
+  
+  itemPrice: {
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.success
+  },
+  
+  itemDetails: {
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.gray600
+  },
+  
+  modifiers: {
+    marginTop: TavariStyles.spacing.sm,
+    paddingLeft: TavariStyles.spacing.md
+  },
+  
+  modifier: {
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.gray600,
+    fontStyle: 'italic'
+  },
+  
+  totals: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px'
+    gap: TavariStyles.spacing.sm
   },
+  
+  totalRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.lg
+  },
+  
+  totalRowFinal: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.xl,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    paddingTop: TavariStyles.spacing.md,
+    borderTop: `2px solid ${TavariStyles.colors.primary}`,
+    marginTop: TavariStyles.spacing.md
+  },
+  
+  payments: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: TavariStyles.spacing.sm
+  },
+  
   paymentRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    padding: '8px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '4px'
+    padding: TavariStyles.spacing.sm,
+    backgroundColor: TavariStyles.colors.gray50,
+    borderRadius: TavariStyles.borderRadius.sm
   },
-  paymentMethod: {
-    fontSize: '14px',
-    color: '#374151',
-    textTransform: 'capitalize'
-  },
-  paymentAmount: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#059669'
-  },
-  changeLabel: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#f59e0b'
-  },
-  changeAmount: {
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#f59e0b'
-  },
-  receiptOptions: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '12px'
-  },
-  receiptButton: {
-    padding: '15px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    textAlign: 'center'
-  },
-  receiptButtonSecondary: {
-    padding: '15px',
-    backgroundColor: '#6b7280',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    textAlign: 'center'
-  },
+  
   customerInfo: {
-    padding: '15px',
-    backgroundColor: '#008080',
-    color: 'white',
-    borderRadius: '6px'
+    lineHeight: 1.6
   },
-  customerName: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    marginBottom: '8px'
+  
+  // Tax and rebate styles
+  taxSection: {
+    marginBottom: TavariStyles.spacing.lg,
+    padding: TavariStyles.spacing.md,
+    backgroundColor: TavariStyles.colors.errorBg,
+    borderRadius: TavariStyles.borderRadius.sm,
+    border: `1px solid ${TavariStyles.colors.danger}`
   },
-  customerDetail: {
-    fontSize: '14px',
-    marginBottom: '4px',
-    opacity: 0.9
+  
+  taxSubtitle: {
+    fontSize: TavariStyles.typography.fontSize.sm,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.danger,
+    marginBottom: TavariStyles.spacing.sm
   },
-  loyaltyEarned: {
-    fontSize: '14px',
-    marginTop: '8px',
-    fontWeight: '600',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    padding: '6px 10px',
-    borderRadius: '4px',
-    display: 'inline-block'
-  },
-  modal: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+  
+  taxRow: {
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.gray700,
+    marginBottom: TavariStyles.spacing.xs
   },
-  modalContent: {
-    backgroundColor: 'white',
-    padding: '30px',
-    borderRadius: '8px',
-    maxWidth: '400px',
-    width: '90%'
+  
+  rebateSection: {
+    marginBottom: TavariStyles.spacing.lg,
+    padding: TavariStyles.spacing.md,
+    backgroundColor: TavariStyles.colors.successBg,
+    borderRadius: TavariStyles.borderRadius.sm,
+    border: `1px solid ${TavariStyles.colors.success}`
   },
-  emailInput: {
-    width: '100%',
-    padding: '12px',
-    border: '2px solid #d1d5db',
-    borderRadius: '6px',
-    fontSize: '16px',
-    marginBottom: '15px'
+  
+  rebateSubtitle: {
+    fontSize: TavariStyles.typography.fontSize.sm,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    color: TavariStyles.colors.success,
+    marginBottom: TavariStyles.spacing.sm
   },
-  modalError: {
-    color: '#dc2626',
-    fontSize: '14px',
-    marginBottom: '15px'
-  },
-  modalActions: {
+  
+  rebateRow: {
     display: 'flex',
-    gap: '10px'
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.sm,
+    color: TavariStyles.colors.gray700,
+    marginBottom: TavariStyles.spacing.xs
   },
-  cancelButton: {
-    flex: 1,
-    padding: '12px',
-    backgroundColor: '#6b7280',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer'
+  
+  netTaxRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: TavariStyles.typography.fontSize.base,
+    fontWeight: TavariStyles.typography.fontWeight.bold,
+    paddingTop: TavariStyles.spacing.md,
+    borderTop: `1px solid ${TavariStyles.colors.gray200}`,
+    marginTop: TavariStyles.spacing.md
   },
-  sendButton: {
-    flex: 1,
-    padding: '12px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer'
-  },
+  
   actions: {
     display: 'flex',
-    justifyContent: 'center'
-  },
-  newSaleButton: {
-    padding: '20px 40px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '18px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    minWidth: '200px'
-  },
-  loading: {
-    display: 'flex',
+    gap: TavariStyles.spacing.lg,
     justifyContent: 'center',
+    marginTop: TavariStyles.spacing['2xl']
+  },
+  
+  // Receipt options styles
+  receiptOptions: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: TavariStyles.spacing.md,
+    marginBottom: TavariStyles.spacing.lg
+  },
+  
+  receiptButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.primary,
+    ...TavariStyles.components.button.sizes.md,
+    display: 'flex',
     alignItems: 'center',
-    height: '200px',
-    fontSize: '18px',
-    color: '#6b7280'
+    justifyContent: 'center',
+    minHeight: '50px'
   },
-  error: {
-    textAlign: 'center',
-    padding: '40px',
-    color: '#dc2626'
+  
+  receiptButtonSecondary: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.secondary,
+    ...TavariStyles.components.button.sizes.md,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '50px'
   },
+  
   button: {
-    padding: '12px 24px',
-    backgroundColor: '#008080',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '16px',
-    fontWeight: 'bold'
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.primary
+  },
+  
+  printButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.secondary,
+    ...TavariStyles.components.button.sizes.lg
+  },
+  
+  newSaleButton: {
+    ...TavariStyles.components.button.base,
+    ...TavariStyles.components.button.variants.primary,
+    ...TavariStyles.components.button.sizes.lg
   }
 };
 

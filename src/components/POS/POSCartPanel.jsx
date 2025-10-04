@@ -1,762 +1,1608 @@
-// components/POS/POSCartPanel.jsx
-import React, { useState, useEffect, useCallback } from "react";
+// components/POS/POSCartPanel.jsx - Complete refactored version with Save & Exit functionality
+import React, { useState, useEffect } from 'react';
+import { TavariStyles } from '../../utils/TavariStyles';
+import { ShoppingCart, Plus, Minus, Trash2, User, Search, History, X } from 'lucide-react';
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
+import { supabase } from '../../supabaseClient';
 
 const POSCartPanel = ({
   cartItems = [],
-  taxRate = 0.13, // pulled from POS settings in POSRegister
-  discount = { type: null, value: 0 }, // { type: 'percent' | 'fixed', value: number }
-  loyaltyCustomer = null, // { id, name, email, phone, balance, points }
-  businessSettings = {}, // POS settings for loyalty rules, etc.
-  sessionLocked = false, // From useSessionLock() hook
-  onUpdateQty,
   onRemoveItem,
+  onUpdateQty,
   onCheckout,
-  onApplyLoyalty,
-  onRemoveLoyalty,
-  onRequestManagerOverride, // Callback for manager PIN prompt
-  currentEmployee = null, // { id, name } for audit logging
-  businessId = null,
-  testId = null // For unit testing
+  sessionLocked = false,
+  attachedCustomer = null,
+  tabMode = false,
+  activeTab = null,
+  loyaltyCustomer = null,
+  businessSettings = {},
+  currentEmployee = null,
+  businessId,
+  taxCategories = [],
+  categoryTaxAssignments = [],
+  categories = [],
+  
+  // Cart deletion props
+  savedCartId = null,
+  isFromSavedCarts = false,
+  onDeleteCart = null,
+  onClearCart = null,
+  
+  // Customer management props
+  onCustomerAttach = null,
+  onCustomerDetach = null,
+  
+  // NEW: Save and Exit Tab functionality
+  onSaveAndExit = null
 }) => {
-  const [loyaltyApplied, setLoyaltyApplied] = useState(0);
-  const [showLoyaltyBanner, setShowLoyaltyBanner] = useState(false);
-  const [managerOverrideActive, setManagerOverrideActive] = useState(false);
-  const [overrideTimeout, setOverrideTimeout] = useState(null);
+  // LOYALTY STATE
+  const [loyaltySettings, setLoyaltySettings] = useState(null);
+  const [availableLoyaltyCredit, setAvailableLoyaltyCredit] = useState(0);
+  const [loyaltyPointsToEarn, setLoyaltyPointsToEarn] = useState(0);
+  const [autoLoyaltyApplied, setAutoLoyaltyApplied] = useState(0);
+  const [dailyUsageRemaining, setDailyUsageRemaining] = useState(0);
+  const [usedToday, setUsedToday] = useState(0);
+  const [showLoyaltyHistory, setShowLoyaltyHistory] = useState(false);
+  const [loyaltyHistory, setLoyaltyHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Calculate subtotal with proper precision
-  const calculateSubtotal = useCallback(() => {
-    return cartItems.reduce((sum, item) => {
-      const basePrice = Number(item.price) || 0;
-      const modifiersTotal = item.modifiers?.reduce((mSum, mod) => {
-        return mSum + (Number(mod.price) || 0);
-      }, 0) || 0;
-      const itemTotal = (basePrice + modifiersTotal) * (Number(item.quantity) || 1);
-      return sum + itemTotal;
-    }, 0);
-  }, [cartItems]);
+  // Transaction detail modal state
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [transactionLoading, setTransactionLoading] = useState(false);
 
-  const subtotal = calculateSubtotal();
+  // Customer entry state
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [manualCustomerId, setManualCustomerId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
-  // Apply discount with proper calculation
-  const calculateDiscount = useCallback(() => {
-    let discountAmount = 0;
-    if (discount?.type === "percent") {
-      discountAmount = subtotal * (Number(discount.value) / 100);
-    } else if (discount?.type === "fixed") {
-      discountAmount = Number(discount.value) || 0;
-    }
-    return Math.min(discountAmount, subtotal); // Can't discount more than subtotal
-  }, [subtotal, discount]);
+  // Tax calculation hook
+  const {
+    calculateTotalTax,
+    applyCashRounding,
+    formatTaxAmount
+  } = useTaxCalculations(businessId);
 
-  const discountAmount = calculateDiscount();
-  const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
-
-  // Apply loyalty redemption with validation
-  const loyaltyRedemption = Math.min(loyaltyApplied, subtotalAfterDiscount);
-  const subtotalAfterLoyalty = Math.max(0, subtotalAfterDiscount - loyaltyRedemption);
-
-  // Calculate tax on final subtotal (after discounts and loyalty)
-  const tax = subtotalAfterLoyalty * Number(taxRate);
-  const total = subtotalAfterLoyalty + tax;
-
-  // Auto-apply loyalty if customer is attached and settings allow
+  // Load loyalty settings
   useEffect(() => {
-    if (loyaltyCustomer && businessSettings.auto_apply_loyalty && !loyaltyApplied && !sessionLocked) {
-      const availableBalance = businessSettings.loyalty_mode === 'points' 
-        ? (loyaltyCustomer.points || 0) * (businessSettings.redemption_rate || 0.01)
-        : (loyaltyCustomer.balance || 0);
-      
-      const maxRedemption = Math.min(availableBalance, subtotalAfterDiscount);
-      const minRedemption = Number(businessSettings.loyalty_min_redemption) || 5;
-      
-      if (maxRedemption >= minRedemption) {
-        setLoyaltyApplied(maxRedemption);
-        setShowLoyaltyBanner(true);
-        logAuditAction('loyalty_auto_applied', { 
-          customer_id: loyaltyCustomer.id, 
-          amount: maxRedemption,
-          subtotal: subtotalAfterDiscount
-        });
-      }
-    }
-  }, [loyaltyCustomer, businessSettings, subtotalAfterDiscount, loyaltyApplied, sessionLocked]);
+    const loadLoyaltySettings = async () => {
+      if (!businessId) return;
 
-  // Manager override timeout handler
-  useEffect(() => {
-    if (managerOverrideActive && !overrideTimeout) {
-      const timeout = setTimeout(() => {
-        setManagerOverrideActive(false);
-        logAuditAction('manager_override_timeout', { duration: 30000 });
-      }, 30000); // 30 second timeout
-      setOverrideTimeout(timeout);
-    }
-    
-    return () => {
-      if (overrideTimeout) {
-        clearTimeout(overrideTimeout);
+      try {
+        const { data: settings, error } = await supabase
+          .from('pos_loyalty_settings')
+          .select('*')
+          .eq('business_id', businessId)
+          .single();
+
+        if (error && error.code !== 'PGRST116') {
+          console.error('Error loading loyalty settings:', error);
+          return;
+        }
+
+        if (settings) {
+          setLoyaltySettings(settings);
+        }
+      } catch (err) {
+        console.error('Failed to load loyalty settings:', err);
       }
     };
-  }, [managerOverrideActive, overrideTimeout]);
 
-  // Audit logging helper with enhanced metadata
-  const logAuditAction = async (action, metadata = {}) => {
-    if (!currentEmployee || !businessId) return;
-    
-    try {
-      const auditData = {
-        action,
-        actor_id: currentEmployee.id,
-        actor_name: currentEmployee.name,
-        business_id: businessId,
-        context: 'pos_cart',
-        metadata: JSON.stringify({
-          ...metadata,
-          cart_item_count: cartItems.length,
-          cart_total: total,
-          session_locked: sessionLocked,
-          timestamp: new Date().toISOString()
-        }),
-        device_info: navigator.userAgent,
-        terminal_id: `terminal_${Date.now()}`, // Generate terminal ID
-        session_id: sessionStorage.getItem('pos_session_id') || 'unknown',
-        timestamp: new Date().toISOString(),
-        success: true
-      };
-      
-      console.log('Audit Log:', auditData);
-      // TODO: Replace with actual Supabase integration
-      // await supabase.from('pos_audit_logs').insert(auditData);
-    } catch (error) {
-      console.error('Audit logging failed:', error);
-      // Log the audit failure itself
-      console.log('Audit Failure Log:', {
-        action: 'audit_log_failure',
-        original_action: action,
-        error: error.message
-      });
+    loadLoyaltySettings();
+  }, [businessId]);
+
+  // Calculate loyalty metrics when cart or customer changes
+  useEffect(() => {
+    if (loyaltyCustomer && loyaltySettings?.is_active && cartItems.length > 0) {
+      calculateLoyaltyMetrics();
+    } else {
+      setAvailableLoyaltyCredit(0);
+      setLoyaltyPointsToEarn(0);
+      setAutoLoyaltyApplied(0);
+      setDailyUsageRemaining(0);
+      setUsedToday(0);
     }
+  }, [cartItems, loyaltyCustomer, loyaltySettings]);
+
+  // Search customers when search term changes
+  useEffect(() => {
+    if (searchTerm.trim().length >= 2) {
+      searchCustomers(searchTerm.trim());
+    } else {
+      setSearchResults([]);
+    }
+  }, [searchTerm]);
+
+  // Helper function to get today's date in business timezone
+  const getTodayInBusinessTimezone = () => {
+    const businessTimezone = businessSettings?.timezone || 'America/Toronto';
+    const today = new Date();
+    
+    const todayInBizTz = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: businessTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(today);
+    
+    return todayInBizTz;
   };
 
-  // Handle loyalty toggle with manager override for large amounts
-  const handleLoyaltyToggle = async () => {
-    if (sessionLocked) {
-      logAuditAction('loyalty_attempt_while_locked');
+  // LOYALTY CALCULATIONS
+  const calculateLoyaltyMetrics = async () => {
+    if (!loyaltyCustomer || !loyaltySettings?.is_active || cartItems.length === 0) {
       return;
     }
 
-    if (loyaltyApplied > 0) {
-      // Remove loyalty
-      setLoyaltyApplied(0);
-      setShowLoyaltyBanner(false);
-      onRemoveLoyalty && onRemoveLoyalty();
-      logAuditAction('loyalty_removed', { 
-        customer_id: loyaltyCustomer?.id,
-        amount_removed: loyaltyApplied
-      });
-    } else if (loyaltyCustomer) {
-      // Apply loyalty
-      const availableBalance = businessSettings.loyalty_mode === 'points' 
-        ? (loyaltyCustomer.points || 0) * (businessSettings.redemption_rate || 0.01)
-        : (loyaltyCustomer.balance || 0);
+    try {
+      const today = getTodayInBusinessTimezone();
       
-      const maxRedemption = Math.min(availableBalance, subtotalAfterDiscount);
-      const minRedemption = Number(businessSettings.loyalty_min_redemption) || 5;
-      const managerOverrideThreshold = Number(businessSettings.loyalty_manager_override_threshold) || 50;
+      // Get today's usage - FIXED: This should be in DOLLARS, not points
+      const { data: todayUsage } = await supabase
+        .from('pos_loyalty_daily_usage')
+        .select('amount_used')
+        .eq('loyalty_account_id', loyaltyCustomer.id)
+        .eq('usage_date', today)
+        .single();
+
+      // FIXED: Convert points to dollars if loyalty mode is points
+      let usedTodayDollars = todayUsage?.amount_used || 0;
       
-      if (maxRedemption >= minRedemption) {
-        // Check if manager override is required for large loyalty redemptions
-        if (maxRedemption > managerOverrideThreshold && !managerOverrideActive) {
-          if (onRequestManagerOverride) {
-            const overrideApproved = await onRequestManagerOverride(
-              'Large loyalty redemption requires manager approval',
-              { amount: maxRedemption, customer: loyaltyCustomer.name }
-            );
-            
-            if (overrideApproved) {
-              setManagerOverrideActive(true);
-              logAuditAction('manager_override_approved_loyalty', { 
-                amount: maxRedemption,
-                customer_id: loyaltyCustomer.id
-              });
-            } else {
-              logAuditAction('manager_override_denied_loyalty', { 
-                amount: maxRedemption,
-                customer_id: loyaltyCustomer.id
-              });
-              return;
-            }
+      // If the stored value looks like points (large number) and we're in points mode, convert it
+      if (loyaltySettings.loyalty_mode === 'points' && usedTodayDollars > 100) {
+        // Convert points to dollars: points ÷ redemption_rate × 10
+        usedTodayDollars = (usedTodayDollars / loyaltySettings.redemption_rate) * 10;
+      }
+      
+      setUsedToday(usedTodayDollars);
+      
+      // Calculate daily limit in dollars
+      const dailyLimitPoints = loyaltySettings.max_redemption_per_day || 5000;
+      const dailyLimitDollars = (dailyLimitPoints / loyaltySettings.redemption_rate) * 10;
+      const remainingDailyLimitDollars = Math.max(0, dailyLimitDollars - usedTodayDollars);
+      
+      setDailyUsageRemaining(remainingDailyLimitDollars);
+      
+      // Calculate cart subtotal
+      const subtotal = cartItems.reduce((sum, item) => {
+        const price = parseFloat(item.price) || 0;
+        const quantity = parseInt(item.quantity) || 1;
+        return sum + (price * quantity);
+      }, 0);
+
+      // Customer balance in dollars
+      const customerBalanceDollars = loyaltyCustomer.balance || 0;
+      
+      // Available credit calculation
+      const maxUsableDollars = Math.min(customerBalanceDollars, remainingDailyLimitDollars, subtotal);
+      setAvailableLoyaltyCredit(Math.max(0, maxUsableDollars));
+
+      // Auto-apply logic preview
+      let autoApplyAmount = 0;
+      if (loyaltySettings.auto_apply === 'always' && maxUsableDollars > 0) {
+        const minRedemptionPoints = loyaltySettings.min_redemption || 5000;
+        const minRedemptionDollars = (minRedemptionPoints / loyaltySettings.redemption_rate) * 10;
+        
+        if (maxUsableDollars >= minRedemptionDollars) {
+          if (loyaltySettings.allow_partial_redemption) {
+            autoApplyAmount = Math.min(maxUsableDollars, subtotal);
+          } else {
+            autoApplyAmount = Math.min(minRedemptionDollars, maxUsableDollars, subtotal);
           }
         }
+      }
+      
+      setAutoLoyaltyApplied(autoApplyAmount);
+
+      // Calculate points to earn
+      const earnRatePercent = loyaltySettings.earn_rate_percentage / 100;
+      const taxableAmountForEarning = subtotal - autoApplyAmount;
+      const dollarsToEarn = taxableAmountForEarning * earnRatePercent;
+      const pointsToEarn = Math.round(dollarsToEarn * loyaltySettings.redemption_rate / 10);
+      
+      setLoyaltyPointsToEarn(pointsToEarn);
+
+    } catch (err) {
+      console.error('Error calculating loyalty metrics:', err);
+    }
+  };
+
+  // Load loyalty history
+  const loadLoyaltyHistory = async () => {
+    if (!loyaltyCustomer || !businessId) {
+      console.warn('Cannot load loyalty history - missing data:', {
+        loyaltyCustomer: !!loyaltyCustomer,
+        businessId: !!businessId
+      });
+      return;
+    }
+
+    console.log('Loading loyalty history for customer:', loyaltyCustomer.id);
+    
+    // ALWAYS show the modal, even if loading or no data
+    setShowLoyaltyHistory(true);
+    setHistoryLoading(true);
+
+    try {
+      const today = getTodayInBusinessTimezone();
+      console.log('Today in business timezone:', today);
+      
+      const startTime = today + 'T00:00:00.000Z';
+      const endTime = today + 'T23:59:59.999Z';
+      console.log('Query date range:', startTime, 'to', endTime);
+      
+      // Execute the query
+      const { data, error } = await supabase
+        .from('pos_loyalty_transactions')
+        .select('*')
+        .eq('loyalty_account_id', loyaltyCustomer.id)
+        .eq('business_id', businessId)
+        .eq('transaction_type', 'redeem')
+        .gte('created_at', startTime)
+        .lt('created_at', endTime)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading loyalty history:', error);
+        setLoyaltyHistory([]);
+      } else {
+        console.log('Loyalty history loaded:', data);
+        setLoyaltyHistory(data || []);
+      }
+
+    } catch (err) {
+      console.error('Error loading loyalty history:', err);
+      setLoyaltyHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // Handle transaction click to show sale details
+  const handleTransactionClick = async (transaction) => {
+    if (!transaction.transaction_id) {
+      alert('This appears to be a test transaction with no associated sale details.');
+      return;
+    }
+
+    setTransactionLoading(true);
+    setShowTransactionModal(true);
+
+    try {
+      console.log('Loading transaction details for:', transaction.transaction_id);
+      
+      // Try to find the sale record
+      const { data: saleData, error: saleError } = await supabase
+        .from('pos_sales')
+        .select(`
+          *,
+          pos_sale_items(
+            *,
+            pos_inventory(name, price)
+          ),
+          pos_payments(*),
+          pos_loyalty_accounts(customer_name, customer_email, customer_phone)
+        `)
+        .eq('id', transaction.transaction_id)
+        .single();
+
+      if (saleError) {
+        console.error('Sale lookup error:', saleError);
         
-        setLoyaltyApplied(maxRedemption);
-        setShowLoyaltyBanner(true);
-        onApplyLoyalty && onApplyLoyalty(maxRedemption);
-        logAuditAction('loyalty_applied', { 
-          customer_id: loyaltyCustomer.id, 
-          amount: maxRedemption,
-          available_balance: availableBalance,
-          manager_override_used: managerOverrideActive
+        // If sale not found, show transaction details only
+        setSelectedTransaction({
+          ...transaction,
+          sale_items: [],
+          payments: [],
+          is_test_transaction: true,
+          error_message: 'Sale details not found - this may be a test transaction'
+        });
+      } else {
+        console.log('Sale data loaded:', saleData);
+        setSelectedTransaction({
+          ...transaction,
+          sale_data: saleData,
+          sale_items: saleData.pos_sale_items || [],
+          payments: saleData.pos_payments || [],
+          customer: saleData.pos_loyalty_accounts,
+          is_test_transaction: false
         });
       }
-    }
-  };
 
-  // Handle quantity update with enhanced validation and audit logging
-  const handleQtyUpdate = (itemId, newQty) => {
-    if (sessionLocked) {
-      logAuditAction('qty_update_attempt_while_locked', { item_id: itemId });
-      return;
-    }
-
-    const item = cartItems.find(i => i.id === itemId);
-    if (!item) return;
-
-    // Validate quantity
-    const validatedQty = Math.max(0, Math.min(Number(newQty) || 0, 99)); // Max 99 per item
-    
-    if (validatedQty === 0) {
-      handleRemoveItem(itemId);
-      return;
-    }
-
-    logAuditAction('cart_qty_update', { 
-      item_id: itemId, 
-      old_qty: item.quantity, 
-      new_qty: validatedQty,
-      item_name: item.name,
-      price_impact: (validatedQty - item.quantity) * (Number(item.price) || 0)
-    });
-
-    onUpdateQty(itemId, validatedQty);
-  };
-
-  // Handle item removal with comprehensive audit logging
-  const handleRemoveItem = (itemId) => {
-    if (sessionLocked) {
-      logAuditAction('remove_item_attempt_while_locked', { item_id: itemId });
-      return;
-    }
-
-    const item = cartItems.find(i => i.id === itemId);
-    if (item) {
-      const itemValue = (Number(item.price) || 0) * (Number(item.quantity) || 1);
-      const modifiersValue = item.modifiers?.reduce((sum, mod) => sum + (Number(mod.price) || 0), 0) || 0;
-      const totalItemValue = itemValue + modifiersValue;
-
-      logAuditAction('cart_item_removed', { 
-        item_id: itemId,
-        item_name: item.name,
-        quantity: item.quantity,
-        base_price: item.price,
-        modifiers_count: item.modifiers?.length || 0,
-        total_item_value: totalItemValue
+    } catch (err) {
+      console.error('Error loading transaction details:', err);
+      setSelectedTransaction({
+        ...transaction,
+        sale_items: [],
+        payments: [],
+        is_test_transaction: true,
+        error_message: 'Error loading sale details: ' + err.message
       });
+    } finally {
+      setTransactionLoading(false);
     }
-    
-    onRemoveItem(itemId);
   };
 
-  // Enhanced checkout with comprehensive pre-checkout validation
-  const handleCheckout = () => {
-    if (sessionLocked) {
-      logAuditAction('checkout_attempt_while_locked');
+  // Search customers function
+  const searchCustomers = async (term) => {
+    if (!businessId || !term.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setSearchLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('pos_loyalty_accounts')
+        .select('id, customer_name, customer_phone, customer_email, balance')
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .or(`customer_name.ilike.%${term}%,customer_phone.ilike.%${term}%`)
+        .limit(5);
+
+      if (error) {
+        console.error('Error searching customers:', error);
+        setSearchResults([]);
+      } else {
+        setSearchResults(data || []);
+      }
+    } catch (err) {
+      console.error('Error searching customers:', err);
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // Manual customer entry handler
+  const handleManualCustomerEntry = async () => {
+    if (!manualCustomerId.trim()) {
+      console.warn('Please enter a customer ID');
+      return;
+    }
+
+    if (onCustomerAttach) {
+      await onCustomerAttach(manualCustomerId.trim());
+    }
+    
+    setManualCustomerId('');
+    setShowManualEntry(false);
+  };
+
+  // Search customer selection handler
+  const handleSearchCustomerSelect = async (customer) => {
+    if (onCustomerAttach) {
+      await onCustomerAttach(customer.id);
+    }
+    
+    setSearchTerm('');
+    setSearchResults([]);
+    setShowSearch(false);
+  };
+
+  // Detach customer handler
+  const handleDetachCustomer = () => {
+    if (onCustomerDetach) {
+      onCustomerDetach();
+    }
+  };
+
+  // Cancel search handler
+  const handleCancelSearch = () => {
+    setShowSearch(false);
+    setSearchTerm('');
+    setSearchResults([]);
+  };
+
+  // Cancel manual entry handler
+  const handleCancelManualEntry = () => {
+    setShowManualEntry(false);
+    setManualCustomerId('');
+  };
+
+  // ENHANCED: Handle Save & Exit for tabs with better debugging
+  const handleSaveAndExit = async () => {
+    console.log('Save & Exit clicked - Debug info:', {
+      tabMode,
+      activeTab: !!activeTab,
+      activeTabDetails: activeTab,
+      onSaveAndExit: !!onSaveAndExit,
+      cartItemsCount: cartItems.length
+    });
+    
+    if (!tabMode) {
+      console.warn('Not in tab mode');
+      alert('Save & Exit is only available when working with tabs.');
+      return;
+    }
+
+    if (!activeTab) {
+      console.warn('No active tab found');
+      alert('No active tab found. Please select a tab first.');
+      return;
+    }
+
+    if (!onSaveAndExit) {
+      console.warn('onSaveAndExit handler not provided by parent component');
+      alert('Save & Exit functionality not available. The parent component needs to provide an onSaveAndExit handler.');
       return;
     }
 
     if (cartItems.length === 0) {
-      logAuditAction('checkout_attempt_empty_cart');
+      console.warn('No items in cart to save');
+      alert('No items in cart to save to the tab.');
       return;
     }
 
-    // Pre-checkout validation
-    const checkoutData = {
-      item_count: cartItems.length,
-      subtotal: subtotal,
-      discount_amount: discountAmount,
-      loyalty_redemption: loyaltyRedemption,
-      tax_amount: tax,
-      total_amount: total,
-      loyalty_customer_id: loyaltyCustomer?.id || null,
-      manager_override_used: managerOverrideActive
-    };
+    try {
+      console.log('Attempting to save items to tab:', {
+        tabId: activeTab.id || activeTab.tab_id,
+        itemCount: cartItems.length
+      });
+      
+      // Call the parent's save and exit handler
+      await onSaveAndExit(activeTab, cartItems);
+      
+      console.log('Tab save successful, clearing cart');
+      
+      // Clear the cart after successful save
+      if (onClearCart) {
+        onClearCart();
+      }
+      
+      console.log('Save & Exit completed successfully');
+      
+    } catch (err) {
+      console.error('Error saving and exiting tab:', err);
+      alert('Failed to save tab items: ' + (err.message || 'Unknown error'));
+    }
+  };
 
-    logAuditAction('checkout_initiated', checkoutData);
-    onCheckout(checkoutData);
+  // Calculate subtotal
+  const subtotal = cartItems.reduce((sum, item) => {
+    const price = parseFloat(item.price) || 0;
+    const quantity = parseInt(item.quantity) || 1;
+    return sum + (price * quantity);
+  }, 0);
+
+  // Calculate tax using the standardized utility
+  const taxCalculation = cartItems.length > 0 ? 
+    calculateTotalTax(cartItems, 0, autoLoyaltyApplied, subtotal) :
+    { totalTax: 0, aggregatedTaxes: {}, aggregatedRebates: {} };
+
+  const taxAmount = taxCalculation.totalTax;
+  const finalSubtotal = subtotal - autoLoyaltyApplied;
+  const total = finalSubtotal + taxAmount;
+
+  // Helper function to display balance in correct format
+  const getBalanceDisplay = (dollarAmount) => {
+    if (!loyaltySettings) return '$0.00';
+    
+    if (loyaltySettings.loyalty_mode === 'points') {
+      const points = Math.round(dollarAmount * loyaltySettings.redemption_rate / 10);
+      return `${points.toLocaleString()} pts`;
+    }
+    return `$${dollarAmount.toFixed(2)}`;
+  };
+
+  const styles = {
+    // MAIN CONTAINER
+    container: {
+      display: 'flex',
+      flexDirection: 'column',
+      height: 'calc(100vh - 180px)',
+      backgroundColor: TavariStyles.colors.white,
+      borderRadius: TavariStyles.borderRadius.lg,
+      boxShadow: TavariStyles.shadows.md,
+      overflow: 'hidden'
+    },
+    
+    // HEADER WITH SAVE & EXIT BUTTON
+    header: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: `${TavariStyles.spacing.md} ${TavariStyles.spacing.lg}`,
+      backgroundColor: TavariStyles.colors.primary,
+      color: TavariStyles.colors.white,
+      borderTopLeftRadius: TavariStyles.borderRadius.lg,
+      borderTopRightRadius: TavariStyles.borderRadius.lg,
+      flexShrink: 0,
+      height: '60px'
+    },
+    
+    headerTitle: {
+      display: 'flex',
+      alignItems: 'center',
+      fontSize: TavariStyles.typography.fontSize.lg,
+      fontWeight: TavariStyles.typography.fontWeight.bold
+    },
+    
+    cartCount: {
+      marginLeft: TavariStyles.spacing.sm,
+      backgroundColor: TavariStyles.colors.white,
+      color: TavariStyles.colors.primary,
+      borderRadius: TavariStyles.borderRadius.full,
+      padding: `${TavariStyles.spacing.xs} ${TavariStyles.spacing.sm}`,
+      fontSize: TavariStyles.typography.fontSize.sm,
+      fontWeight: TavariStyles.typography.fontWeight.bold
+    },
+    
+    buttonGroup: {
+      display: 'flex',
+      gap: TavariStyles.spacing.sm
+    },
+    
+    clearButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.sizes.sm,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      color: TavariStyles.colors.white,
+      border: `1px solid rgba(255,255,255,0.3)`
+    },
+    
+    saveExitButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.sizes.sm,
+      backgroundColor: TavariStyles.colors.warning,
+      color: TavariStyles.colors.white,
+      border: `1px solid ${TavariStyles.colors.warning}`
+    },
+    
+    // CUSTOMER SECTION
+    customerSection: {
+      padding: TavariStyles.spacing.md,
+      borderBottom: `1px solid ${TavariStyles.colors.gray200}`,
+      backgroundColor: loyaltyCustomer ? TavariStyles.colors.successBg : TavariStyles.colors.gray50,
+      flexShrink: 0,
+      minHeight: loyaltyCustomer ? '220px' : '100px',
+      maxHeight: showSearch || showManualEntry ? '320px' : (loyaltyCustomer ? '220px' : '100px'),
+      overflow: 'hidden',
+      transition: 'max-height 0.3s ease'
+    },
+    
+    customerHeader: {
+      display: 'flex',
+      alignItems: 'flex-start',
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    customerIcon: {
+      color: loyaltyCustomer ? TavariStyles.colors.success : TavariStyles.colors.gray500,
+      marginRight: TavariStyles.spacing.sm,
+      marginTop: '2px'
+    },
+    
+    customerDetails: {
+      flex: 1
+    },
+    
+    customerName: {
+      fontSize: loyaltyCustomer ? TavariStyles.typography.fontSize['2xl'] : TavariStyles.typography.fontSize.sm,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray900,
+      margin: 0,
+      lineHeight: '1.1'
+    },
+    
+    customerBalance: {
+      fontSize: loyaltyCustomer ? TavariStyles.typography.fontSize.lg : TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.success,
+      margin: 0,
+      lineHeight: '1.3',
+      marginTop: '4px'
+    },
+    
+    customerSubtext: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray600,
+      margin: 0,
+      lineHeight: '1.3',
+      marginTop: '2px'
+    },
+    
+    statusBadge: {
+      fontSize: '10px',
+      color: loyaltyCustomer ? TavariStyles.colors.success : TavariStyles.colors.gray500,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      backgroundColor: loyaltyCustomer ? TavariStyles.colors.successBg : TavariStyles.colors.gray100,
+      padding: '2px 6px',
+      borderRadius: TavariStyles.borderRadius.sm,
+      border: `1px solid ${loyaltyCustomer ? TavariStyles.colors.success : TavariStyles.colors.gray300}`,
+      alignSelf: 'flex-start'
+    },
+    
+    // LOYALTY CARDS
+    loyaltyCards: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(2, 1fr)',
+      gap: TavariStyles.spacing.sm,
+      marginTop: TavariStyles.spacing.sm,
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    loyaltyCard: {
+      backgroundColor: TavariStyles.colors.white,
+      border: `1px solid ${TavariStyles.colors.success}30`,
+      borderRadius: TavariStyles.borderRadius.md,
+      padding: TavariStyles.spacing.md,
+      textAlign: 'center',
+      boxShadow: TavariStyles.shadows.sm
+    },
+    
+    cardLabel: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray500,
+      textTransform: 'uppercase',
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      marginBottom: TavariStyles.spacing.xs,
+      letterSpacing: '0.05em'
+    },
+    
+    cardValue: {
+      fontSize: TavariStyles.typography.fontSize.sm,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.success,
+      lineHeight: '1'
+    },
+    
+    loyaltyHistoryButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.secondary,
+      fontSize: TavariStyles.typography.fontSize.xs,
+      padding: `${TavariStyles.spacing.xs} ${TavariStyles.spacing.sm}`,
+      height: '28px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: TavariStyles.spacing.xs,
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    buttonRow: {
+      display: 'flex',
+      gap: TavariStyles.spacing.sm,
+      marginTop: TavariStyles.spacing.sm
+    },
+    
+    fullWidthButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.primary,
+      flex: 1,
+      fontSize: TavariStyles.typography.fontSize.xs,
+      padding: `${TavariStyles.spacing.sm} ${TavariStyles.spacing.xs}`,
+      height: '32px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: TavariStyles.spacing.xs
+    },
+    
+    searchButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.secondary,
+      flex: 1,
+      fontSize: TavariStyles.typography.fontSize.xs,
+      padding: `${TavariStyles.spacing.sm} ${TavariStyles.spacing.xs}`,
+      height: '32px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: TavariStyles.spacing.xs
+    },
+    
+    detachButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.danger,
+      width: '100%',
+      fontSize: TavariStyles.typography.fontSize.xs,
+      padding: `${TavariStyles.spacing.sm} ${TavariStyles.spacing.xs}`,
+      height: '32px'
+    },
+    
+    // EXPANDABLE SECTIONS
+    expandableSection: {
+      marginTop: TavariStyles.spacing.sm,
+      padding: TavariStyles.spacing.sm,
+      backgroundColor: TavariStyles.colors.white,
+      borderRadius: TavariStyles.borderRadius.sm,
+      border: `1px solid ${TavariStyles.colors.gray300}`
+    },
+    
+    searchInput: {
+      ...TavariStyles.components.form.input,
+      display: 'block',
+      width: '100%',
+      fontSize: TavariStyles.typography.fontSize.sm,
+      marginBottom: TavariStyles.spacing.sm,
+      boxSizing: 'border-box',
+      padding: TavariStyles.spacing.sm,
+      border: `1px solid ${TavariStyles.colors.gray300}`,
+      borderRadius: TavariStyles.borderRadius.sm
+    },
+    
+    manualInput: {
+      ...TavariStyles.components.form.input,
+      display: 'block',
+      width: '100%',
+      fontSize: TavariStyles.typography.fontSize.sm,
+      marginBottom: TavariStyles.spacing.sm,
+      boxSizing: 'border-box',
+      padding: TavariStyles.spacing.sm,
+      border: `1px solid ${TavariStyles.colors.gray300}`,
+      borderRadius: TavariStyles.borderRadius.sm
+    },
+    
+    searchResults: {
+      maxHeight: '120px',
+      overflowY: 'auto',
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    searchResultItem: {
+      padding: TavariStyles.spacing.sm,
+      cursor: 'pointer',
+      borderBottom: `1px solid ${TavariStyles.colors.gray200}`,
+      transition: TavariStyles.transitions.fast
+    },
+    
+    resultName: {
+      fontSize: TavariStyles.typography.fontSize.sm,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray900
+    },
+    
+    resultDetails: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray600
+    },
+    
+    actionButtons: {
+      display: 'flex',
+      gap: TavariStyles.spacing.sm
+    },
+    
+    actionButton: {
+      ...TavariStyles.components.button.base,
+      fontSize: TavariStyles.typography.fontSize.xs,
+      padding: TavariStyles.spacing.sm,
+      height: '36px',
+      border: `1px solid ${TavariStyles.colors.gray300}`,
+      borderRadius: TavariStyles.borderRadius.sm,
+      boxSizing: 'border-box'
+    },
+    
+    primaryActionButton: {
+      backgroundColor: TavariStyles.colors.primary,
+      color: TavariStyles.colors.white,
+      borderColor: TavariStyles.colors.primary
+    },
+    
+    secondaryActionButton: {
+      backgroundColor: TavariStyles.colors.white,
+      color: TavariStyles.colors.gray700,
+      borderColor: TavariStyles.colors.gray300
+    },
+    
+    // SCROLLABLE ITEMS LIST
+    itemsList: {
+      flex: 1,
+      overflowY: 'auto',
+      padding: TavariStyles.spacing.sm,
+      minHeight: 0
+    },
+    
+    emptyCart: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      color: TavariStyles.colors.gray400,
+      textAlign: 'center'
+    },
+    
+    emptyCartIcon: {
+      fontSize: '32px',
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    cartItem: {
+      display: 'flex',
+      alignItems: 'flex-start',
+      padding: TavariStyles.spacing.sm,
+      marginBottom: TavariStyles.spacing.xs,
+      backgroundColor: TavariStyles.colors.gray50,
+      borderRadius: TavariStyles.borderRadius.sm,
+      border: `1px solid ${TavariStyles.colors.gray200}`,
+      minHeight: '50px'
+    },
+    
+    itemInfo: {
+      flex: 1,
+      marginRight: TavariStyles.spacing.sm
+    },
+    
+    itemRow: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '2px'
+    },
+    
+    itemName: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray900
+    },
+    
+    itemPrice: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray700
+    },
+    
+    modifierRow: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingLeft: '20px',
+      marginBottom: '1px'
+    },
+    
+    modifierName: {
+      fontSize: '10px',
+      color: TavariStyles.colors.gray600,
+      fontStyle: 'italic'
+    },
+    
+    modifierPrice: {
+      fontSize: '10px',
+      color: TavariStyles.colors.gray600,
+      fontWeight: TavariStyles.typography.fontWeight.medium
+    },
+    
+    quantityControls: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px'
+    },
+    
+    quantityButton: {
+      ...TavariStyles.components.button.base,
+      backgroundColor: TavariStyles.colors.gray200,
+      color: TavariStyles.colors.gray700,
+      minWidth: '24px',
+      height: '24px',
+      padding: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '12px'
+    },
+    
+    quantity: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray900,
+      minWidth: '16px',
+      textAlign: 'center'
+    },
+    
+    removeButton: {
+      ...TavariStyles.components.button.base,
+      backgroundColor: TavariStyles.colors.danger,
+      color: TavariStyles.colors.white,
+      padding: '2px',
+      marginLeft: '4px',
+      minWidth: '24px',
+      height: '24px',
+      fontSize: '12px'
+    },
+    
+    // CHECKOUT SECTION
+    checkoutSection: {
+      padding: TavariStyles.spacing.md,
+      borderTop: `1px solid ${TavariStyles.colors.gray200}`,
+      backgroundColor: TavariStyles.colors.gray50,
+      borderBottomLeftRadius: TavariStyles.borderRadius.lg,
+      borderBottomRightRadius: TavariStyles.borderRadius.lg,
+      flexShrink: 0,
+      height: '160px'
+    },
+    
+    summaryRow: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '4px'
+    },
+    
+    summaryLabel: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      color: TavariStyles.colors.gray700
+    },
+    
+    summaryValue: {
+      fontSize: TavariStyles.typography.fontSize.xs,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray900
+    },
+    
+    totalRow: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingTop: TavariStyles.spacing.xs,
+      borderTop: `1px solid ${TavariStyles.colors.gray300}`,
+      marginTop: TavariStyles.spacing.xs,
+      marginBottom: TavariStyles.spacing.sm
+    },
+    
+    totalLabel: {
+      fontSize: TavariStyles.typography.fontSize.base,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray900
+    },
+    
+    totalValue: {
+      fontSize: TavariStyles.typography.fontSize.lg,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.success
+    },
+    
+    checkoutButton: {
+      ...TavariStyles.components.button.base,
+      ...TavariStyles.components.button.variants.primary,
+      ...TavariStyles.components.button.sizes.lg,
+      width: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: TavariStyles.spacing.sm
+    },
+    
+    // MODAL STYLES
+    modal: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 99999
+    },
+    
+    modalContent: {
+      backgroundColor: TavariStyles.colors.white,
+      borderRadius: TavariStyles.borderRadius.lg,
+      maxWidth: '500px',
+      width: '90%',
+      maxHeight: '80vh',
+      display: 'flex',
+      flexDirection: 'column',
+      boxShadow: TavariStyles.shadows.xl
+    },
+    
+    modalHeader: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: TavariStyles.spacing.lg,
+      borderBottom: `1px solid ${TavariStyles.colors.gray200}`,
+      flexShrink: 0
+    },
+    
+    modalTitle: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      margin: 0
+    },
+    
+    modalBody: {
+      flex: 1,
+      padding: TavariStyles.spacing.lg,
+      overflowY: 'auto'
+    },
+    
+    closeButton: {
+      background: 'transparent',
+      border: 'none',
+      fontSize: '24px',
+      cursor: 'pointer',
+      color: TavariStyles.colors.gray600,
+      padding: TavariStyles.spacing.xs,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: TavariStyles.borderRadius.sm,
+      transition: TavariStyles.transitions.fast
+    }
   };
 
   return (
-    <div style={styles.container} data-testid={testId}>
-      <h3 style={styles.header}>Cart</h3>
+    <div style={styles.container}>
+      {/* HEADER WITH SAVE & EXIT BUTTON */}
+      <div style={styles.header}>
+        <div style={styles.headerTitle}>
+          <ShoppingCart size={18} />
+          <span>{tabMode && activeTab ? `Tab: ${activeTab.customer_name || 'Unnamed'}` : 'Cart'}</span>
+          <span style={styles.cartCount}>{cartItems.length}</span>
+        </div>
+        
+        {cartItems.length > 0 && (
+          <div style={styles.buttonGroup}>
+            {tabMode && activeTab && (
+              <button
+                onClick={handleSaveAndExit}
+                style={styles.saveExitButton}
+                title="Save items to tab and clear cart"
+              >
+                Save & Exit
+              </button>
+            )}
+            <button
+              onClick={onClearCart}
+              style={styles.clearButton}
+              title="Clear cart"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
 
-      {/* Session Lock Overlay */}
-      {sessionLocked && (
-        <div style={styles.lockOverlay}>
-          <div style={styles.lockMessage}>
-            🔒 Session Locked
-            <br />
-            <small>Enter PIN to continue</small>
+      {/* CUSTOMER SECTION */}
+      <div style={styles.customerSection}>
+        <div style={styles.customerHeader}>
+          <User size={16} style={styles.customerIcon} />
+          <div style={styles.customerDetails}>
+            {loyaltyCustomer ? (
+              <>
+                <div style={styles.customerName}>
+                  {loyaltyCustomer.customer_name}
+                </div>
+                <div style={styles.customerBalance}>
+                  Balance: {getBalanceDisplay(loyaltyCustomer.balance || 0)}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={styles.customerName}>
+                  No Customer
+                </div>
+                <div style={styles.customerSubtext}>
+                  Scan QR code, Enter Name, Enter Phone Number, or Enter ID
+                </div>
+              </>
+            )}
+          </div>
+          <div style={styles.statusBadge}>
+            {loyaltyCustomer ? 'ATTACHED' : 'NONE'}
           </div>
         </div>
-      )}
-
-      {/* Manager Override Active Banner */}
-      {managerOverrideActive && (
-        <div style={styles.overrideBanner}>
-          ⚠️ Manager Override Active (30s)
-        </div>
-      )}
-
-      {/* Loyalty Customer Banner */}
-      {loyaltyCustomer && (
-        <div style={styles.loyaltyBanner}>
-          <div style={styles.customerInfo}>
-            <strong>{loyaltyCustomer.name}</strong>
-            <br />
-            <small>
-              {businessSettings.loyalty_mode === 'dollars' ? '$' : ''}
-              {businessSettings.loyalty_mode === 'points' 
-                ? (loyaltyCustomer.points || 0) 
-                : (loyaltyCustomer.balance || 0).toFixed(2)}
-              {businessSettings.loyalty_mode === 'points' ? ' pts' : ''} available
-            </small>
-          </div>
-          <button 
-            style={loyaltyApplied > 0 ? styles.loyaltyButtonActive : styles.loyaltyButton}
-            onClick={handleLoyaltyToggle}
-            disabled={sessionLocked}
+        
+        {/* LOYALTY CARDS - Only show when customer is attached */}
+        {loyaltyCustomer && loyaltySettings?.is_active && cartItems.length > 0 && (
+          <>
+            <div style={styles.loyaltyCards}>
+              <div style={styles.loyaltyCard}>
+                <div style={styles.cardLabel}>Will Earn</div>
+                <div style={styles.cardValue}>
+                  {loyaltySettings.loyalty_mode === 'points' 
+                    ? `${loyaltyPointsToEarn} pts`
+                    : `$${(loyaltyPointsToEarn * 10 / loyaltySettings.redemption_rate).toFixed(2)}`
+                  }
+                </div>
+              </div>
+              
+              <div style={styles.loyaltyCard}>
+                <div style={styles.cardLabel}>Available</div>
+                <div style={styles.cardValue}>
+                  ${availableLoyaltyCredit.toFixed(2)}
+                </div>
+              </div>
+              
+              <div style={styles.loyaltyCard}>
+                <div style={styles.cardLabel}>Used Today</div>
+                <div style={styles.cardValue}>
+                  ${usedToday.toFixed(2)}
+                </div>
+              </div>
+              
+              <div style={styles.loyaltyCard}>
+                <div style={styles.cardLabel}>Remaining</div>
+                <div style={styles.cardValue}>
+                  ${dailyUsageRemaining.toFixed(2)}
+                </div>
+              </div>
+            </div>
+            
+            <button
+              style={styles.loyaltyHistoryButton}
+              onClick={loadLoyaltyHistory}
+            >
+              <History size={14} />
+              View Loyalty Usage
+            </button>
+          </>
+        )}
+        
+        {/* BUTTON ROW */}
+        {loyaltyCustomer ? (
+          <button
+            style={styles.detachButton}
+            onClick={handleDetachCustomer}
           >
-            {loyaltyApplied > 0 ? 'Remove Loyalty' : 'Apply Loyalty'}
+            Detach Customer
+          </button>
+        ) : (
+          <div style={styles.buttonRow}>
+            <button
+              style={styles.fullWidthButton}
+              onClick={() => {
+                setShowManualEntry(true);
+                setShowSearch(false);
+              }}
+            >
+              Manual Entry
+            </button>
+            <button
+              style={styles.searchButton}
+              onClick={() => {
+                setShowSearch(true);
+                setShowManualEntry(false);
+              }}
+            >
+              <Search size={14} />
+              Search
+            </button>
+          </div>
+        )}
+
+        {/* EXPANDABLE MANUAL ENTRY SECTION */}
+        {showManualEntry && (
+          <div style={styles.expandableSection}>
+            <input
+              type="text"
+              value={manualCustomerId}
+              onChange={(e) => setManualCustomerId(e.target.value)}
+              placeholder="Enter Customer ID"
+              style={styles.manualInput}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleManualCustomerEntry();
+                }
+              }}
+              autoFocus
+            />
+            <div style={styles.actionButtons}>
+              <button
+                style={{
+                  ...styles.actionButton,
+                  ...styles.primaryActionButton,
+                  flex: 1
+                }}
+                onClick={handleManualCustomerEntry}
+                disabled={!manualCustomerId.trim()}
+              >
+                Add Customer
+              </button>
+              <button
+                style={{
+                  ...styles.actionButton,
+                  ...styles.secondaryActionButton,
+                  flex: 1
+                }}
+                onClick={handleCancelManualEntry}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* EXPANDABLE SEARCH SECTION */}
+        {showSearch && (
+          <div style={styles.expandableSection}>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by name or phone number"
+              style={styles.searchInput}
+              autoFocus
+            />
+            
+            {searchLoading && (
+              <div style={{ textAlign: 'center', color: TavariStyles.colors.gray500, fontSize: TavariStyles.typography.fontSize.xs }}>
+                Searching...
+              </div>
+            )}
+            
+            {searchResults.length > 0 && (
+              <div style={styles.searchResults}>
+                {searchResults.map((customer) => (
+                  <div
+                    key={customer.id}
+                    style={styles.searchResultItem}
+                    onClick={() => handleSearchCustomerSelect(customer)}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = TavariStyles.colors.gray100;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = 'transparent';
+                    }}
+                  >
+                    <div style={styles.resultName}>{customer.customer_name}</div>
+                    <div style={styles.resultDetails}>
+                      {customer.customer_phone} • Balance: {getBalanceDisplay(customer.balance || 0)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {searchTerm.length >= 2 && !searchLoading && searchResults.length === 0 && (
+              <div style={{ textAlign: 'center', color: TavariStyles.colors.gray500, fontSize: TavariStyles.typography.fontSize.xs, marginBottom: TavariStyles.spacing.sm }}>
+                No customers found
+              </div>
+            )}
+            
+            <button
+              style={{
+                ...styles.actionButton,
+                ...styles.secondaryActionButton,
+                width: '100%'
+              }}
+              onClick={handleCancelSearch}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* SCROLLABLE ITEMS LIST */}
+      <div style={styles.itemsList}>
+        {cartItems.length === 0 ? (
+          <div style={styles.emptyCart}>
+            <div style={styles.emptyCartIcon}>🛒</div>
+            <p>Cart is empty</p>
+          </div>
+        ) : (
+          cartItems.map((item, index) => {
+            // Extract base name and modifiers
+            const baseName = item.name.includes(' - ') ? item.name.split(' - ')[0] : item.name;
+            let modifiersToShow = [];
+            
+            // Try to use modifiers array first
+            if (item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+              modifiersToShow = item.modifiers;
+            } else if (item.name.includes(' - ')) {
+              // Extract from name if no modifiers array
+              const parts = item.name.split(' - ');
+              const modifierNames = parts.slice(1);
+              modifiersToShow = modifierNames.map(name => ({ name, price: 0 }));
+            }
+            
+            return (
+              <div key={`${item.id}-${index}`} style={styles.cartItem}>
+                <div style={styles.itemInfo}>
+                  {/* Main item row with name and price aligned */}
+                  <div style={styles.itemRow}>
+                    <span style={styles.itemName}>{baseName}</span>
+                    <span style={styles.itemPrice}>${parseFloat(item.price || 0).toFixed(2)}</span>
+                  </div>
+                  
+                  {/* Show modifiers indented below if they exist */}
+                  {modifiersToShow.length > 0 && (
+                    modifiersToShow.map((modifier, modIndex) => (
+                      <div key={modIndex} style={styles.modifierRow}>
+                        <span style={styles.modifierName}>{modifier.name}</span>
+                        <span style={styles.modifierPrice}>${parseFloat(modifier.price || 0).toFixed(2)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                
+                <div style={styles.quantityControls}>
+                  <button
+                    onClick={() => onUpdateQty(item.id, Math.max(1, item.quantity - 1))}
+                    disabled={sessionLocked || item.quantity <= 1}
+                    style={{
+                      ...styles.quantityButton,
+                      opacity: (sessionLocked || item.quantity <= 1) ? 0.5 : 1
+                    }}
+                  >
+                    <Minus size={10} />
+                  </button>
+                  
+                  <div style={styles.quantity}>{item.quantity}</div>
+                  
+                  <button
+                    onClick={() => onUpdateQty(item.id, item.quantity + 1)}
+                    disabled={sessionLocked}
+                    style={{
+                      ...styles.quantityButton,
+                      opacity: sessionLocked ? 0.5 : 1
+                    }}
+                  >
+                    <Plus size={10} />
+                  </button>
+                  
+                  <button
+                    onClick={() => onRemoveItem(item.id)}
+                    disabled={sessionLocked}
+                    style={{
+                      ...styles.removeButton,
+                      opacity: sessionLocked ? 0.5 : 1
+                    }}
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* CHECKOUT SECTION */}
+      {cartItems.length > 0 && (
+        <div style={styles.checkoutSection}>
+          <div style={styles.summaryRow}>
+            <span style={styles.summaryLabel}>Subtotal:</span>
+            <span style={styles.summaryValue}>${subtotal.toFixed(2)}</span>
+          </div>
+          
+          {autoLoyaltyApplied > 0 && (
+            <div style={styles.summaryRow}>
+              <span style={styles.summaryLabel}>Loyalty Credit:</span>
+              <span style={styles.summaryValue}>-${autoLoyaltyApplied.toFixed(2)}</span>
+            </div>
+          )}
+          
+          <div style={styles.summaryRow}>
+            <span style={styles.summaryLabel}>Tax:</span>
+            <span style={styles.summaryValue}>${formatTaxAmount(taxAmount)}</span>
+          </div>
+          
+          <div style={styles.totalRow}>
+            <span style={styles.totalLabel}>Total:</span>
+            <span style={styles.totalValue}>${total.toFixed(2)}</span>
+          </div>
+          
+          <button
+            onClick={() => onCheckout({
+              items: cartItems,
+              subtotal,
+              tax: taxAmount,
+              total,
+              customer: attachedCustomer || loyaltyCustomer,
+              tabMode,
+              activeTab,
+              loyaltyCustomer: loyaltyCustomer,
+              discount_amount: 0,
+              loyalty_redemption: autoLoyaltyApplied,
+              aggregated_taxes: taxCalculation.aggregatedTaxes,
+              aggregated_rebates: taxCalculation.aggregatedRebates
+            })}
+            disabled={sessionLocked || cartItems.length === 0}
+            style={{
+              ...styles.checkoutButton,
+              opacity: (sessionLocked || cartItems.length === 0) ? 0.5 : 1,
+              cursor: (sessionLocked || cartItems.length === 0) ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <ShoppingCart size={18} />
+            {tabMode ? 'Process Tab Payment' : 'Checkout'}
           </button>
         </div>
       )}
 
-      {/* Live Loyalty Applied Banner */}
-      {showLoyaltyBanner && loyaltyRedemption > 0 && (
-        <div style={styles.loyaltyActiveBanner}>
-          🎉 Loyalty Applied: -${loyaltyRedemption.toFixed(2)}
-        </div>
-      )}
-
-      {cartItems.length === 0 ? (
-        <div style={styles.empty}>Cart is empty</div>
-      ) : (
-        <>
-          <div style={styles.list}>
-            {cartItems.map((item) => {
-              const basePrice = Number(item.price) || 0;
-              const modifiersTotal = item.modifiers?.reduce((sum, mod) => sum + (Number(mod.price) || 0), 0) || 0;
-              const itemTotal = (basePrice + modifiersTotal) * (Number(item.quantity) || 1);
-
-              return (
-                <div key={item.id} style={styles.item} data-testid={`cart-item-${item.id}`}>
-                  {/* Item Information Column */}
-                  <div style={styles.itemColumn}>
-                    <div style={styles.name}>{item.name}</div>
-                    
-                    {/* Enhanced Modifier Display */}
-                    {item.modifiers && item.modifiers.length > 0 && (
-                      <div style={styles.modifiers}>
-                        {item.modifiers.map((mod, index) => (
-                          <div key={`${mod.id}-${index}`} style={styles.modifierLine}>
-                            {mod.required ? '• ' : '+ '}{mod.name}
-                            {mod.group_name && <small> ({mod.group_name})</small>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+      {/* LOYALTY HISTORY MODAL */}
+      {showLoyaltyHistory && (
+        <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.modalContent}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Today's Loyalty Usage</h3>
+              <button 
+                style={styles.closeButton}
+                onClick={() => setShowLoyaltyHistory(false)}
+                onMouseEnter={(e) => {
+                  e.target.style.backgroundColor = TavariStyles.colors.gray100;
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.backgroundColor = 'transparent';
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={styles.modalBody}>
+              {historyLoading ? (
+                <div style={{ textAlign: 'center', padding: TavariStyles.spacing.xl }}>
+                  Loading transaction history...
+                </div>
+              ) : loyaltyHistory.length === 0 ? (
+                <div>
+                  <div style={{ marginBottom: TavariStyles.spacing.lg, padding: TavariStyles.spacing.md, backgroundColor: TavariStyles.colors.successBg, borderRadius: TavariStyles.borderRadius.sm }}>
+                    <p style={{ margin: 0 }}>
+                      <strong>Total used today:</strong> ${usedToday.toFixed(2)}
+                    </p>
                   </div>
-                  
-                  {/* Price Information Column */}
-                  <div style={styles.priceColumn}>
-                    <div style={styles.basePrice}>${basePrice.toFixed(2)}</div>
-                    
-                    {/* Modifier prices aligned with modifier names */}
-                    {item.modifiers && item.modifiers.length > 0 && (
-                      <div style={styles.modifierPrices}>
-                        {item.modifiers.map((mod, index) => (
-                          <div key={`${mod.id}-price-${index}`} style={styles.modifierPriceLine}>
-                            {Number(mod.price) > 0 ? `+${Number(mod.price).toFixed(2)}` : 'Free'}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {modifiersTotal > 0 && (
-                      <div style={styles.modifierTotal}>+${modifiersTotal.toFixed(2)}</div>
-                    )}
-                    <div style={styles.itemTotal}>${itemTotal.toFixed(2)}</div>
-                  </div>
-                  
-                  {/* Controls Column */}
-                  <div style={styles.controls}>
-                    <button 
-                      style={styles.qtyButton}
-                      onClick={() => handleQtyUpdate(item.id, (Number(item.quantity) || 1) - 1)}
-                      disabled={sessionLocked}
-                      data-testid={`qty-decrease-${item.id}`}
-                    >
-                      -
-                    </button>
-                    <span style={styles.quantity}>{Number(item.quantity) || 1}</span>
-                    <button 
-                      style={styles.qtyButton}
-                      onClick={() => handleQtyUpdate(item.id, (Number(item.quantity) || 1) + 1)}
-                      disabled={sessionLocked}
-                      data-testid={`qty-increase-${item.id}`}
-                    >
-                      +
-                    </button>
-                    <button 
-                      style={styles.remove} 
-                      onClick={() => handleRemoveItem(item.id)}
-                      disabled={sessionLocked}
-                      data-testid={`remove-${item.id}`}
-                    >
-                      ×
-                    </button>
+                  <div style={{ textAlign: 'center', color: TavariStyles.colors.gray500 }}>
+                    No loyalty transactions found for today.
                   </div>
                 </div>
-              );
-            })}
+              ) : (
+                <>
+                  <div style={{ marginBottom: TavariStyles.spacing.lg, padding: TavariStyles.spacing.md, backgroundColor: TavariStyles.colors.successBg, borderRadius: TavariStyles.borderRadius.sm }}>
+                    <p style={{ margin: 0 }}>
+                      <strong>Total used today:</strong> ${usedToday.toFixed(2)} ({loyaltyHistory.length} transactions)
+                    </p>
+                  </div>
+                  
+                  {loyaltyHistory.map((transaction, index) => (
+                    <div key={index} style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: TavariStyles.spacing.md,
+                      marginBottom: TavariStyles.spacing.sm,
+                      backgroundColor: TavariStyles.colors.gray50,
+                      borderRadius: TavariStyles.borderRadius.sm
+                    }}>
+                      <div style={{ flex: 1 }}>
+                        <div 
+                          style={{
+                            fontSize: TavariStyles.typography.fontSize.sm,
+                            fontWeight: TavariStyles.typography.fontWeight.semibold,
+                            color: TavariStyles.colors.primary,
+                            cursor: 'pointer',
+                            textDecoration: 'underline'
+                          }}
+                          onClick={() => handleTransactionClick(transaction)}
+                        >
+                          Transaction #{transaction.transaction_id?.slice(-8) || 'Unknown'}
+                        </div>
+                        <div style={{
+                          fontSize: TavariStyles.typography.fontSize.xs,
+                          color: TavariStyles.colors.gray500,
+                          marginTop: '2px'
+                        }}>
+                          {new Date(transaction.created_at).toLocaleTimeString()}
+                        </div>
+                      </div>
+                      <div style={{
+                        fontSize: TavariStyles.typography.fontSize.sm,
+                        fontWeight: TavariStyles.typography.fontWeight.bold,
+                        color: TavariStyles.colors.danger
+                      }}>
+                        {loyaltySettings?.loyalty_mode === 'points' && Math.abs(transaction.amount) > 100
+                          ? `-$${((Math.abs(transaction.amount) / loyaltySettings.redemption_rate) * 10).toFixed(2)}`
+                          : `-$${Math.abs(transaction.amount).toFixed(2)}`
+                        }
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
           </div>
+        </div>
+      )}
 
-          {/* Enhanced Summary with Proper Calculations */}
-          <div style={styles.summary}>
-            <div style={styles.row}>
-              <span>Subtotal ({cartItems.length} items)</span>
-              <span>${subtotal.toFixed(2)}</span>
+      {/* TRANSACTION DETAIL MODAL */}
+      {showTransactionModal && (
+        <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <div style={{
+            ...styles.modalContent,
+            maxWidth: '600px'
+          }}>
+            <div style={{
+              ...styles.modalHeader,
+              backgroundColor: TavariStyles.colors.primary,
+              color: TavariStyles.colors.white,
+              borderTopLeftRadius: TavariStyles.borderRadius.lg,
+              borderTopRightRadius: TavariStyles.borderRadius.lg
+            }}>
+              <h3 style={{
+                ...styles.modalTitle,
+                color: TavariStyles.colors.white
+              }}>
+                Transaction Details #{selectedTransaction?.transaction_id?.slice(-8) || 'Unknown'}
+              </h3>
+              <button 
+                style={{
+                  ...styles.closeButton,
+                  color: TavariStyles.colors.white
+                }}
+                onClick={() => {
+                  setShowTransactionModal(false);
+                  setSelectedTransaction(null);
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.backgroundColor = 'rgba(255,255,255,0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.backgroundColor = 'transparent';
+                }}
+              >
+                <X size={20} />
+              </button>
             </div>
             
-            {discountAmount > 0 && (
-              <div style={styles.rowDiscount}>
-                <span>Discount ({discount.type === 'percent' ? `${discount.value}%` : 'Fixed'})</span>
-                <span>- ${discountAmount.toFixed(2)}</span>
-              </div>
-            )}
-            
-            {loyaltyRedemption > 0 && (
-              <div style={styles.rowLoyalty}>
-                <span>Loyalty Redemption</span>
-                <span>- ${loyaltyRedemption.toFixed(2)}</span>
-              </div>
-            )}
-            
-            <div style={styles.rowSubtotal}>
-              <span>Taxable Amount</span>
-              <span>${subtotalAfterLoyalty.toFixed(2)}</span>
-            </div>
-            
-            <div style={styles.row}>
-              <span>Tax ({(taxRate * 100).toFixed(2)}%)</span>
-              <span>${tax.toFixed(2)}</span>
-            </div>
-            
-            <div style={styles.rowTotal}>
-              <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+            <div style={styles.modalBody}>
+              {transactionLoading ? (
+                <div style={{ textAlign: 'center', padding: TavariStyles.spacing.xl }}>
+                  Loading transaction details...
+                </div>
+              ) : selectedTransaction ? (
+                <div>
+                  {selectedTransaction.error_message && (
+                    <div style={{
+                      backgroundColor: TavariStyles.colors.warningBg,
+                      color: TavariStyles.colors.warningText,
+                      padding: TavariStyles.spacing.md,
+                      borderRadius: TavariStyles.borderRadius.sm,
+                      marginBottom: TavariStyles.spacing.md
+                    }}>
+                      {selectedTransaction.error_message}
+                    </div>
+                  )}
+                  
+                  <div style={{ marginBottom: TavariStyles.spacing.lg }}>
+                    <h4 style={{
+                      fontSize: TavariStyles.typography.fontSize.lg,
+                      fontWeight: TavariStyles.typography.fontWeight.bold,
+                      color: TavariStyles.colors.gray800,
+                      marginBottom: TavariStyles.spacing.md,
+                      borderBottom: `2px solid ${TavariStyles.colors.primary}`,
+                      paddingBottom: TavariStyles.spacing.sm
+                    }}>Transaction Information</h4>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: `${TavariStyles.spacing.sm} 0`, borderBottom: `1px solid ${TavariStyles.colors.gray100}` }}>
+                      <span style={{ fontWeight: TavariStyles.typography.fontWeight.medium }}>Date:</span>
+                      <span>{new Date(selectedTransaction.created_at).toLocaleDateString()}</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: `${TavariStyles.spacing.sm} 0`, borderBottom: `1px solid ${TavariStyles.colors.gray100}` }}>
+                      <span style={{ fontWeight: TavariStyles.typography.fontWeight.medium }}>Time:</span>
+                      <span>{new Date(selectedTransaction.created_at).toLocaleTimeString()}</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: `${TavariStyles.spacing.sm} 0`, borderBottom: `1px solid ${TavariStyles.colors.gray100}` }}>
+                      <span style={{ fontWeight: TavariStyles.typography.fontWeight.medium }}>Type:</span>
+                      <span>{selectedTransaction.transaction_type.charAt(0).toUpperCase() + selectedTransaction.transaction_type.slice(1)}</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: `${TavariStyles.spacing.sm} 0` }}>
+                      <span style={{ fontWeight: TavariStyles.typography.fontWeight.medium }}>Amount:</span>
+                      <span>${Math.abs(selectedTransaction.amount).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: TavariStyles.spacing.xl }}>
+                  No transaction details available.
+                </div>
+              )}
             </div>
           </div>
-
-          <button 
-            style={{
-              ...styles.checkout,
-              ...(sessionLocked ? styles.checkoutDisabled : {})
-            }}
-            onClick={handleCheckout}
-            disabled={cartItems.length === 0 || sessionLocked}
-            data-testid="checkout-button"
-          >
-            {sessionLocked ? 'Session Locked' : `Checkout - $${total.toFixed(2)}`}
-          </button>
-        </>
+        </div>
       )}
     </div>
   );
-};
-
-const styles = {
-  container: {
-    backgroundColor: "#fff",
-    borderLeft: "1px solid #ddd",
-    padding: "20px",
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    minHeight: "400px",
-    position: "relative",
-  },
-  header: {
-    margin: "0 0 15px 0",
-    fontSize: "18px",
-    fontWeight: "bold",
-    color: "#333",
-  },
-  
-  // Session Lock Styles
-  lockOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-  },
-  lockMessage: {
-    textAlign: "center",
-    fontSize: "18px",
-    color: "#666",
-    fontWeight: "bold",
-  },
-  
-  // Override Banner
-  overrideBanner: {
-    backgroundColor: "#ff9800",
-    color: "white",
-    padding: "8px",
-    borderRadius: "4px",
-    marginBottom: "10px",
-    textAlign: "center",
-    fontSize: "14px",
-    fontWeight: "bold",
-  },
-  
-  // Loyalty Styles
-  loyaltyBanner: {
-    backgroundColor: "#008080",
-    color: "white",
-    padding: "12px",
-    borderRadius: "6px",
-    marginBottom: "12px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  customerInfo: {
-    fontSize: "14px",
-    lineHeight: "1.4",
-  },
-  loyaltyButton: {
-    backgroundColor: "white",
-    color: "#008080",
-    border: "2px solid #008080",
-    padding: "6px 12px",
-    borderRadius: "4px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: "bold",
-  },
-  loyaltyButtonActive: {
-    backgroundColor: "#ff6b6b",
-    color: "white",
-    border: "2px solid #ff6b6b",
-    padding: "6px 12px",
-    borderRadius: "4px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: "bold",
-  },
-  loyaltyActiveBanner: {
-    backgroundColor: "#4CAF50",
-    color: "white",
-    padding: "10px",
-    borderRadius: "6px",
-    marginBottom: "12px",
-    textAlign: "center",
-    fontSize: "14px",
-    fontWeight: "bold",
-  },
-  
-  // Cart Item Styles
-  empty: {
-    color: "#888",
-    textAlign: "center",
-    marginTop: "40px",
-    fontSize: "16px",
-    fontStyle: "italic",
-  },
-  list: {
-    flex: 1,
-    overflowY: "auto",
-    marginBottom: "15px",
-    maxHeight: "350px",
-  },
-  item: {
-    display: "flex",
-    alignItems: "flex-start",
-    padding: "12px 0",
-    borderBottom: "1px solid #eee",
-    gap: "12px",
-  },
-  
-  // Three Column Layout
-  itemColumn: {
-    flex: 2,
-    display: "flex",
-    flexDirection: "column",
-  },
-  priceColumn: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end",
-    textAlign: "right",
-  },
-  
-  name: {
-    fontSize: "15px",
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: "4px",
-  },
-  
-  // Enhanced Modifier Styles - Column Layout
-  modifiers: {
-    marginLeft: "12px",
-    fontSize: "13px",
-    color: "#555",
-  },
-  modifierLine: {
-    marginBottom: "2px",
-    fontStyle: "italic",
-  },
-  
-  // Price Column Styles
-  basePrice: {
-    fontSize: "14px",
-    color: "#333",
-    fontWeight: "500",
-    marginBottom: "2px",
-  },
-  modifierPrices: {
-    fontSize: "12px",
-    color: "#666",
-  },
-  modifierPriceLine: {
-    marginBottom: "2px",
-  },
-  modifierTotal: {
-    fontSize: "12px",
-    color: "#888",
-    fontStyle: "italic",
-    marginTop: "2px",
-    paddingTop: "2px",
-    borderTop: "1px dotted #ddd",
-  },
-  itemTotal: {
-    fontSize: "15px",
-    color: "#333",
-    fontWeight: "bold",
-    marginTop: "4px",
-    paddingTop: "4px",
-    borderTop: "1px solid #ddd",
-  },
-  
-  // Controls
-  controls: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    fontSize: "14px",
-  },
-  qtyButton: {
-    backgroundColor: "white",
-    border: "2px solid #008080",
-    color: "#008080",
-    width: "32px",
-    height: "32px",
-    borderRadius: "4px",
-    cursor: "pointer",
-    fontWeight: "bold",
-    fontSize: "16px",
-  },
-  quantity: {
-    minWidth: "20px",
-    textAlign: "center",
-    fontWeight: "bold",
-    margin: "0 4px",
-  },
-  remove: {
-    backgroundColor: "#ff6b6b",
-    color: "white",
-    border: "none",
-    padding: "6px 10px",
-    cursor: "pointer",
-    borderRadius: "4px",
-    fontSize: "16px",
-    fontWeight: "bold",
-    marginLeft: "6px",
-  },
-  
-  // Summary Styles
-  summary: {
-    borderTop: "2px solid #ddd",
-    paddingTop: "12px",
-    marginTop: "12px",
-  },
-  row: {
-    display: "flex",
-    justifyContent: "space-between",
-    margin: "4px 0",
-    fontSize: "14px",
-  },
-  rowDiscount: {
-    display: "flex",
-    justifyContent: "space-between",
-    margin: "4px 0",
-    fontSize: "14px",
-    color: "#ff6b6b",
-    fontWeight: "bold",
-  },
-  rowLoyalty: {
-    display: "flex",
-    justifyContent: "space-between",
-    margin: "4px 0",
-    fontSize: "14px",
-    color: "#4CAF50",
-    fontWeight: "bold",
-  },
-  rowSubtotal: {
-    display: "flex",
-    justifyContent: "space-between",
-    margin: "6px 0",
-    fontSize: "14px",
-    fontWeight: "500",
-    paddingTop: "6px",
-    borderTop: "1px solid #eee",
-  },
-  rowTotal: {
-    display: "flex",
-    justifyContent: "space-between",
-    margin: "8px 0 0 0",
-    fontSize: "16px",
-    fontWeight: "bold",
-    paddingTop: "8px",
-    borderTop: "2px solid #333",
-    color: "#333",
-  },
-  
-  // Checkout Button
-  checkout: {
-    marginTop: "15px",
-    padding: "14px",
-    backgroundColor: "#008080",
-    color: "#fff",
-    border: "none",
-    borderRadius: "6px",
-    cursor: "pointer",
-    fontWeight: "bold",
-    fontSize: "16px",
-    width: "100%",
-  },
-  checkoutDisabled: {
-    backgroundColor: "#ccc",
-    cursor: "not-allowed",
-    color: "#666",
-  },
 };
 
 export default POSCartPanel;

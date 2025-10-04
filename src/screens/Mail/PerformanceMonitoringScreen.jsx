@@ -1,7 +1,8 @@
-// screens/Mail/PerformanceMonitoringScreen.jsx - Step 133: Performance Monitoring & Alerts
+// screens/Mail/PerformanceMonitoringScreen.jsx - Performance Monitoring & Alerts with Pause Protection
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
+import EmailPauseBanner, { blockEmailSendIfPaused } from '../../components/EmailPauseBanner';
 import systemTests from '../../helpers/Mail/systemTests';
 import {
   FiActivity, FiAlertTriangle, FiCheckCircle, FiClock, FiTrendingUp, 
@@ -204,8 +205,9 @@ const PerformanceMonitoringScreen = () => {
     }
   }, [businessId, thresholds.alertCooldown, loadPerformanceData]);
 
-  // Run performance benchmark and record metrics
+  // Run performance benchmark and record metrics - WITH PAUSE PROTECTION
   const runPerformanceBenchmark = useCallback(async () => {
+    if (blockEmailSendIfPaused('Performance benchmark')) return;
     if (!businessId) return;
 
     try {
@@ -331,11 +333,17 @@ const PerformanceMonitoringScreen = () => {
     }
   }, [businessId, createPerformanceTable, loadPerformanceData]);
 
-  // Auto-refresh every 5 minutes
+  // Auto-refresh every 5 minutes - WITH PAUSE CHECK
   useEffect(() => {
     const interval = setInterval(() => {
       if (businessId && !monitoring) {
-        runPerformanceBenchmark();
+        // Check if paused before auto-running benchmark
+        const stored = localStorage.getItem('EMAIL_SENDING_PAUSED');
+        const isPaused = stored ? JSON.parse(stored) : true;
+        
+        if (!isPaused) {
+          runPerformanceBenchmark();
+        }
       }
     }, 5 * 60 * 1000); // 5 minutes
 
@@ -382,6 +390,11 @@ const PerformanceMonitoringScreen = () => {
 
   return (
     <div style={styles.container}>
+      {/* Email Pause Banner */}
+      <EmailPauseBanner 
+        customMessage="Performance benchmarks that send test emails are paused. Monitoring and alerts remain active."
+      />
+
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>

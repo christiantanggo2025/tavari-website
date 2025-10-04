@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
+import EmailPauseBanner, { blockEmailSendIfPaused } from '../../components/EmailPauseBanner';
 import AddContactModal from '../../components/Mail/AddContactModal';
 import CSVImportModal from '../../components/Mail/CSVImportModal';
 import EditContactModal from '../../components/Mail/EditContactModal';
@@ -324,9 +325,14 @@ const ContactsList = () => {
     }
   };
 
-  // Enhanced bulk operations with new features
+  // Enhanced bulk operations with new features and pause protection
   const handleBulkOperation = async (operation) => {
     if (selectedContacts.length === 0) return;
+
+    // Block email-related operations when paused
+    if (operation === 'send_campaign' || operation === 'send_newsletter') {
+      if (blockEmailSendIfPaused('Bulk email sending')) return;
+    }
 
     let confirmMessage = '';
     switch (operation) {
@@ -715,6 +721,9 @@ const ContactsList = () => {
 
   return (
     <div style={styles.container}>
+      {/* Email Pause Banner */}
+      <EmailPauseBanner />
+
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>

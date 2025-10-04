@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
+import EmailPauseBanner, { blockEmailSendIfPaused } from '../../components/EmailPauseBanner';
 import { 
   FiArrowLeft, FiEdit3, FiSave, FiX, FiMail, FiPhone, FiUser, 
-  FiTag, FiCalendar, FiUserCheck, FiUserX, FiTrash2, FiRefreshCw
+  FiTag, FiCalendar, FiUserCheck, FiUserX, FiTrash2, FiRefreshCw, FiSend
 } from 'react-icons/fi';
 
 const ContactDetails = () => {
@@ -253,6 +254,25 @@ const ContactDetails = () => {
     }
   };
 
+  const handleSendDirectEmail = async () => {
+    if (blockEmailSendIfPaused('Direct email sending')) return;
+    
+    // TODO: Implement direct email sending functionality
+    alert('Direct email sending functionality will be implemented when email service is ready.');
+  };
+
+  const handleAddToCampaign = async () => {
+    if (blockEmailSendIfPaused('Adding to campaign')) return;
+    
+    // Navigate to campaigns or show campaign selection modal
+    navigate('/dashboard/mail/campaigns', { 
+      state: { 
+        preselectedContact: contact.id,
+        action: 'add_contact' 
+      } 
+    });
+  };
+
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -288,6 +308,7 @@ const ContactDetails = () => {
   if (loading) {
     return (
       <div style={styles.container}>
+        <EmailPauseBanner />
         <div style={styles.loading}>Loading contact...</div>
       </div>
     );
@@ -296,6 +317,7 @@ const ContactDetails = () => {
   if (!contact) {
     return (
       <div style={styles.container}>
+        <EmailPauseBanner />
         <div style={styles.notFound}>Contact not found</div>
       </div>
     );
@@ -303,6 +325,8 @@ const ContactDetails = () => {
 
   return (
     <div style={styles.container}>
+      <EmailPauseBanner />
+      
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
@@ -332,6 +356,24 @@ const ContactDetails = () => {
         </div>
         
         <div style={styles.headerActions}>
+          {contact.subscribed && (
+            <>
+              <button 
+                style={styles.emailButton}
+                onClick={handleSendDirectEmail}
+              >
+                <FiSend style={styles.buttonIcon} />
+                Send Email
+              </button>
+              <button 
+                style={styles.campaignButton}
+                onClick={handleAddToCampaign}
+              >
+                <FiMail style={styles.buttonIcon} />
+                Add to Campaign
+              </button>
+            </>
+          )}
           <button 
             style={styles.subscriptionButton}
             onClick={handleSubscriptionToggle}
@@ -667,6 +709,33 @@ const styles = {
     display: 'flex',
     gap: '12px',
     alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  emailButton: {
+    backgroundColor: '#4caf50',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '10px 18px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  campaignButton: {
+    backgroundColor: '#2196f3',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '10px 18px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   },
   subscriptionButton: {
     backgroundColor: 'white',
@@ -943,6 +1012,18 @@ const styles = {
     fontSize: '14px',
     color: '#666',
     margin: 0,
+  },
+  '@media (max-width: 768px)': {
+    mainSection: {
+      gridTemplateColumns: '1fr',
+    },
+    formRow: {
+      gridTemplateColumns: '1fr',
+    },
+    headerActions: {
+      width: '100%',
+      justifyContent: 'flex-start',
+    },
   },
 };
 

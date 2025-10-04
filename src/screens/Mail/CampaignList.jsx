@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
+import EmailPauseBanner, { blockEmailSendIfPaused } from '../../components/EmailPauseBanner';
 import { FiMail, FiPlus, FiEdit3, FiSend, FiEye, FiTrash2, FiCopy, FiClock, FiCheckCircle, FiAlertCircle, FiRefreshCw } from 'react-icons/fi';
 
 const CampaignList = () => {
@@ -13,6 +14,12 @@ const CampaignList = () => {
   const [filter, setFilter] = useState('all'); // all, draft, sent, scheduled
   const [error, setError] = useState(null);
 
+  // Email sending pause state for UI updates
+  const [emailSendingPaused, setEmailSendingPaused] = useState(() => {
+    const stored = localStorage.getItem('EMAIL_SENDING_PAUSED');
+    return stored ? JSON.parse(stored) : true; // Default to paused for safety
+  });
+
   // Use localStorage as primary source, context as fallback
   const businessId = localStorage.getItem('currentBusinessId') || business?.id;
 
@@ -21,6 +28,22 @@ const CampaignList = () => {
       loadCampaigns();
     }
   }, [businessId, filter]);
+
+  // Listen for localStorage changes to update pause state
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const stored = localStorage.getItem('EMAIL_SENDING_PAUSED');
+      setEmailSendingPaused(stored ? JSON.parse(stored) : true);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('emailPauseStateChanged', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('emailPauseStateChanged', handleStorageChange);
+    };
+  }, []);
 
   const loadCampaigns = async () => {
     if (!businessId) return;
@@ -70,7 +93,10 @@ const CampaignList = () => {
       case 'failed':
         return <FiAlertCircle style={{ color: '#f44336' }} />;
       case 'sending':
-        return <FiRefreshCw style={{ color: '#2196f3' }} />;
+        // Show paused icon if sending is paused, otherwise show spinning icon
+        return emailSendingPaused ? 
+          <FiAlertCircle style={{ color: '#ff9800' }} /> : 
+          <FiRefreshCw style={{ color: '#2196f3' }} />;
       default:
         return <FiMail style={{ color: '#666' }} />;
     }
@@ -87,7 +113,8 @@ const CampaignList = () => {
       case 'failed':
         return 'Failed';
       case 'sending':
-        return 'Sending';
+        // Show "Paused" if sending is paused, otherwise show "Sending"
+        return emailSendingPaused ? 'Paused' : 'Sending';
       default:
         return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
     }
@@ -105,7 +132,18 @@ const CampaignList = () => {
   };
 
   const handleEdit = (campaignId) => {
+    if (blockEmailSendIfPaused('Campaign editing')) return;
     navigate(`/dashboard/mail/builder/${campaignId}`);
+  };
+
+  const handleSendNow = (campaignId) => {
+    if (blockEmailSendIfPaused('Campaign sending')) return;
+    navigate(`/dashboard/mail/sender/${campaignId}`);
+  };
+
+  const handleCreateCampaign = () => {
+    if (blockEmailSendIfPaused('Campaign creation')) return;
+    navigate('/dashboard/mail/builder');
   };
 
   const handleDuplicate = async (campaign) => {
@@ -139,7 +177,8 @@ const CampaignList = () => {
       // Reload campaigns to show the new duplicate
       loadCampaigns();
       
-      // Navigate to edit the new campaign
+      // Navigate to edit the new campaign (with pause check)
+      if (blockEmailSendIfPaused('Campaign editing')) return;
       navigate(`/dashboard/mail/builder/${data.id}`);
     } catch (error) {
       console.error('Error duplicating campaign:', error);
@@ -197,6 +236,9 @@ const CampaignList = () => {
 
   return (
     <div style={styles.container}>
+      {/* Pause Banner */}
+      <EmailPauseBanner />
+
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
@@ -204,11 +246,16 @@ const CampaignList = () => {
           <p style={styles.subtitle}>Create and manage your email marketing campaigns</p>
         </div>
         <button 
-          style={styles.createButton}
-          onClick={() => navigate('/dashboard/mail/builder')}
+          style={{
+            ...styles.createButton,
+            ...(emailSendingPaused ? styles.disabledButton : {})
+          }}
+          onClick={handleCreateCampaign}
+          disabled={emailSendingPaused}
         >
           <FiPlus style={styles.buttonIcon} />
           Create Campaign
+          {emailSendingPaused && <span style={styles.pausedLabel}>(Paused)</span>}
         </button>
       </div>
 
@@ -266,11 +313,16 @@ const CampaignList = () => {
             }
           </p>
           <button 
-            style={styles.emptyButton}
-            onClick={() => navigate('/dashboard/mail/builder')}
+            style={{
+              ...styles.emptyButton,
+              ...(emailSendingPaused ? styles.disabledButton : {})
+            }}
+            onClick={handleCreateCampaign}
+            disabled={emailSendingPaused}
           >
             <FiPlus style={styles.buttonIcon} />
             Create Your First Campaign
+            {emailSendingPaused && <span style={styles.pausedLabel}>(Paused)</span>}
           </button>
         </div>
       ) : (
@@ -322,11 +374,16 @@ const CampaignList = () => {
               <div style={styles.campaignActions}>
                 {(campaign.status === 'draft' || campaign.status === 'scheduled') && (
                   <button 
-                    style={styles.actionButton}
+                    style={{
+                      ...styles.actionButton,
+                      ...(emailSendingPaused ? styles.disabledActionButton : {})
+                    }}
                     onClick={() => handleEdit(campaign.id)}
+                    disabled={emailSendingPaused}
                   >
                     <FiEdit3 style={styles.actionIcon} />
                     Edit
+                    {emailSendingPaused && <span style={styles.actionPausedLabel}>Paused</span>}
                   </button>
                 )}
                 
@@ -348,15 +405,21 @@ const CampaignList = () => {
                 
                 {campaign.status === 'draft' && (
                   <button 
-                    style={{...styles.actionButton, ...styles.sendButton}}
-                    onClick={() => navigate(`/dashboard/mail/sender/${campaign.id}`)}
+                    style={{
+                      ...styles.actionButton,
+                      ...styles.sendButton,
+                      ...(emailSendingPaused ? styles.disabledSendButton : {})
+                    }}
+                    onClick={() => handleSendNow(campaign.id)}
+                    disabled={emailSendingPaused}
                   >
                     <FiSend style={styles.actionIcon} />
                     Send Now
+                    {emailSendingPaused && <span style={styles.actionPausedLabel}>Paused</span>}
                   </button>
                 )}
                 
-                {(campaign.status === 'draft' || campaign.status === 'scheduled') && (
+                {(campaign.status === 'draft' || campaign.status === 'scheduled' || campaign.status === 'sending') && (
                   <button 
                     style={{...styles.actionButton, ...styles.deleteButton}}
                     onClick={() => handleDelete(campaign.id, campaign.name)}
@@ -430,6 +493,19 @@ const styles = {
     alignItems: 'center',
     gap: '8px',
     transition: 'all 0.2s ease',
+    position: 'relative',
+  },
+  disabledButton: {
+    backgroundColor: '#ccc',
+    cursor: 'not-allowed',
+    opacity: 0.7,
+  },
+  pausedLabel: {
+    fontSize: '12px',
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    marginLeft: '8px',
   },
   buttonIcon: {
     fontSize: '16px',
@@ -524,6 +600,7 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '8px',
+    position: 'relative',
   },
   campaignsList: {
     display: 'flex',
@@ -615,6 +692,22 @@ const styles = {
     alignItems: 'center',
     gap: '6px',
     transition: 'all 0.2s ease',
+    position: 'relative',
+  },
+  disabledActionButton: {
+    backgroundColor: '#f5f5f5',
+    borderColor: '#ccc',
+    color: '#999',
+    cursor: 'not-allowed',
+    opacity: 0.7,
+  },
+  actionPausedLabel: {
+    fontSize: '10px',
+    position: 'absolute',
+    bottom: '-2px',
+    right: '4px',
+    color: '#999',
+    fontStyle: 'italic',
   },
   actionIcon: {
     fontSize: '14px',
@@ -623,6 +716,13 @@ const styles = {
     backgroundColor: 'teal',
     borderColor: 'teal',
     color: 'white',
+  },
+  disabledSendButton: {
+    backgroundColor: '#ccc',
+    borderColor: '#ccc',
+    color: '#999',
+    cursor: 'not-allowed',
+    opacity: 0.7,
   },
   deleteButton: {
     borderColor: '#f44336',

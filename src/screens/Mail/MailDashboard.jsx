@@ -3,11 +3,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
-import { FiMail, FiUsers, FiSend, FiSettings, FiBarChart2, FiFileText, FiShield, FiDollarSign, FiActivity, FiAlertTriangle } from 'react-icons/fi';
+import { FiMail, FiUsers, FiSend, FiSettings, FiBarChart2, FiFileText, FiShield, FiDollarSign, FiActivity, FiAlertTriangle, FiPause } from 'react-icons/fi';
 
 const MailDashboard = () => {
   const navigate = useNavigate();
   const { business } = useBusiness();
+  
+  // Email sending pause state
+  const [emailSendingPaused, setEmailSendingPaused] = useState(() => {
+    const stored = localStorage.getItem('EMAIL_SENDING_PAUSED');
+    return stored ? JSON.parse(stored) : true; // Default to paused for safety
+  });
+
   const [stats, setStats] = useState({
     totalContacts: 0,
     subscribedContacts: 0,
@@ -27,6 +34,17 @@ const MailDashboard = () => {
       loadDashboardStats();
     }
   }, [businessId]);
+
+  // Listen for localStorage changes to update pause state
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const stored = localStorage.getItem('EMAIL_SENDING_PAUSED');
+      setEmailSendingPaused(stored ? JSON.parse(stored) : true);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const loadDashboardStats = async () => {
     if (!businessId) return;
@@ -101,6 +119,11 @@ const MailDashboard = () => {
   };
 
   const navigateTo = (path) => {
+    // Block navigation to email-sending screens when paused
+    if (emailSendingPaused && (path.includes('/builder') || path.includes('/campaigns'))) {
+      alert('Email sending is currently PAUSED. Go to Mail Settings to enable sending before creating or managing campaigns.');
+      return;
+    }
     navigate(path);
   };
 
@@ -135,6 +158,26 @@ const MailDashboard = () => {
 
   return (
     <div style={styles.container}>
+      {/* Pause Banner - Only show when paused */}
+      {emailSendingPaused && (
+        <div style={styles.pauseBanner}>
+          <div style={styles.pauseBannerContent}>
+            <FiPause style={styles.pauseIcon} />
+            <div style={styles.pauseText}>
+              <strong>EMAIL SENDING PAUSED</strong>
+              <span>All campaigns and email sends are currently blocked. Go to Mail Settings to enable sending.</span>
+            </div>
+            <button 
+              style={styles.settingsButton}
+              onClick={() => navigate('/dashboard/mail/settings')}
+            >
+              <FiSettings style={styles.buttonIcon} />
+              Mail Settings
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={styles.header}>
         <h1 style={styles.title}>Tavari Mail Dashboard</h1>
@@ -189,11 +232,22 @@ const MailDashboard = () => {
       
       <div style={styles.buttonGrid}>
         <button 
-          style={styles.gridButton} 
+          style={{
+            ...styles.gridButton,
+            ...(emailSendingPaused ? styles.disabledButton : {})
+          }}
           onClick={() => navigateTo('/dashboard/mail/builder')}
+          disabled={emailSendingPaused}
         >
-          <FiMail style={styles.buttonIcon} />
-          <span style={styles.buttonText}>Create Campaign</span>
+          <FiMail style={{
+            ...styles.buttonIcon,
+            color: emailSendingPaused ? '#ccc' : 'teal'
+          }} />
+          <span style={{
+            ...styles.buttonText,
+            color: emailSendingPaused ? '#ccc' : '#333'
+          }}>Create Campaign</span>
+          {emailSendingPaused && <span style={styles.disabledText}>Paused</span>}
         </button>
         
         <button 
@@ -205,11 +259,22 @@ const MailDashboard = () => {
         </button>
         
         <button 
-          style={styles.gridButton}
+          style={{
+            ...styles.gridButton,
+            ...(emailSendingPaused ? styles.disabledButton : {})
+          }}
           onClick={() => navigateTo('/dashboard/mail/campaigns')}
+          disabled={emailSendingPaused}
         >
-          <FiFileText style={styles.buttonIcon} />
-          <span style={styles.buttonText}>View Campaigns</span>
+          <FiFileText style={{
+            ...styles.buttonIcon,
+            color: emailSendingPaused ? '#ccc' : 'teal'
+          }} />
+          <span style={{
+            ...styles.buttonText,
+            color: emailSendingPaused ? '#ccc' : '#333'
+          }}>View Campaigns</span>
+          {emailSendingPaused && <span style={styles.disabledText}>Paused</span>}
         </button>
         
         <button 
@@ -325,6 +390,43 @@ const styles = {
     margin: '0 auto',
     backgroundColor: '#f8f8f8',
     minHeight: '100vh',
+  },
+  pauseBanner: {
+    backgroundColor: '#f44336',
+    color: 'white',
+    padding: '0',
+    marginBottom: '30px',
+    borderRadius: '8px',
+    boxShadow: '0 4px 12px rgba(244, 67, 54, 0.3)',
+  },
+  pauseBannerContent: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '15px',
+    padding: '20px 25px',
+    flexWrap: 'wrap',
+  },
+  pauseIcon: {
+    fontSize: '24px',
+    color: 'white',
+  },
+  pauseText: {
+    flex: 1,
+    minWidth: '200px',
+  },
+  settingsButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    color: 'white',
+    border: '2px solid rgba(255,255,255,0.3)',
+    borderRadius: '6px',
+    padding: '10px 16px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    transition: 'all 0.2s ease',
   },
   loading: {
     display: 'flex',
@@ -444,6 +546,13 @@ const styles = {
     gap: '10px',
     transition: 'all 0.2s ease',
     minHeight: '120px',
+    position: 'relative',
+  },
+  disabledButton: {
+    backgroundColor: '#f5f5f5',
+    borderColor: '#ddd',
+    cursor: 'not-allowed',
+    opacity: 0.7,
   },
   buttonIcon: {
     fontSize: '32px',
@@ -454,6 +563,13 @@ const styles = {
     fontWeight: 'bold',
     color: '#333',
     textAlign: 'center',
+  },
+  disabledText: {
+    position: 'absolute',
+    bottom: '8px',
+    fontSize: '12px',
+    color: '#999',
+    fontStyle: 'italic',
   },
   statusSection: {
     marginBottom: '40px',
@@ -510,6 +626,14 @@ const styles = {
     },
     statsGrid: {
       gridTemplateColumns: '1fr',
+    },
+    pauseBannerContent: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      gap: '15px',
+    },
+    settingsButton: {
+      justifyContent: 'center',
     },
   },
 };

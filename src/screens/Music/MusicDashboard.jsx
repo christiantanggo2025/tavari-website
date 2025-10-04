@@ -1,509 +1,444 @@
-// src/screens/Music/MusicDashboard.jsx
+// src/screens/Music/MusicDashboard.jsx - Cleaned up (PIN protection handled by SidebarNav)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiMusic, FiUpload, FiList, FiSettings, FiLock } from 'react-icons/fi';
+import { FiMusic, FiUpload, FiList, FiSettings, FiLock, FiPlay, FiPause, FiVolume2, FiWifi, FiWifiOff } from 'react-icons/fi';
+
+// Tavari Build Standards - Required imports
+import { TavariStyles } from '../../utils/TavariStyles';
+import TavariCheckbox from '../../components/UI/TavariCheckbox';
+import POSAuthWrapper from '../../components/Auth/POSAuthWrapper';
+import { SecurityWrapper } from '../../Security';
+import { usePOSAuth } from '../../hooks/usePOSAuth';
+import { useSecurityContext } from '../../Security/useSecurityContext';
+import { useTaxCalculations } from '../../hooks/useTaxCalculations';
+
+// Music-specific components
 import AudioPlayer from '../../components/Music/AudioPlayer';
 import SystemMonitor from '../../components/Music/SystemMonitor';
-import { useUserProfile } from '../../hooks/useUserProfile';
-import { useBusiness } from '../../contexts/BusinessContext';
-import useAccessProtection from '../../hooks/useAccessProtection';
-import SessionManager from '../../components/SessionManager';
-import { supabase } from '../../supabaseClient';
-import bcrypt from 'bcryptjs';
 
+/**
+ * Music Dashboard - Main hub for music management
+ * PIN protection is now handled by SidebarNav - no custom lock needed
+ */
 const MusicDashboard = () => {
   const navigate = useNavigate();
-  const { profile } = useUserProfile();
-  const { business } = useBusiness();
-  useAccessProtection(profile);
 
-  const [isLocked, setIsLocked] = useState(true);
-  const [userRole, setUserRole] = useState(null);
-  const [pinInput, setPinInput] = useState('');
-  const [error, setError] = useState('');
-  const [failedAttempts, setFailedAttempts] = useState(0);
+  // Tavari standardized authentication
+  const auth = usePOSAuth({
+    requiredRoles: ['manager', 'owner'], // Music access restricted to managers and owners
+    requireBusiness: true,
+    componentName: 'MusicDashboard'
+  });
 
-  // Fetch user role
+  // Tavari standardized security
+  const security = useSecurityContext({
+    enableRateLimiting: true,
+    enableDeviceTracking: true,
+    enableInputValidation: true,
+    enableAuditLogging: true,
+    componentName: 'MusicDashboard',
+    sensitiveComponent: true // Music dashboard contains business content
+  });
+
+  // Tax calculations (for potential music purchases/licensing)
+  const taxCalc = useTaxCalculations(auth.selectedBusinessId);
+
+  // Local state for music-specific features (removed lock-related state)
+  const [autoLockEnabled, setAutoLockEnabled] = useState(true);
+
+  // Log dashboard access
   useEffect(() => {
-    const fetchUserRole = async () => {
-      if (!profile?.id || !business?.id) return;
+    const logAccess = async () => {
+      await security.logSecurityEvent('music_dashboard_access', {
+        user_role: auth.userRole,
+        business_id: auth.selectedBusinessId
+      }, 'low');
 
-      try {
-        const { data, error } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', profile.id)
-          .eq('business_id', business.id)
-          .eq('active', true)
-          .single();
-
-        if (error) {
-          console.error('Error fetching user role:', error);
-          return;
-        }
-
-        if (data) {
-          setUserRole(data.role);
-        }
-      } catch (error) {
-        console.error('Error in fetchUserRole:', error);
-      }
+      await security.recordAction('music_dashboard_view', true);
     };
 
-    fetchUserRole();
-  }, [profile?.id, business?.id]);
-
-  // Check if user has music access permissions
-  const hasAccess = () => {
-    if (!userRole) return false;
-    const role = userRole.toLowerCase();
-    return ['manager', 'admin', 'owner'].includes(role);
-  };
-
-  // Handle PIN unlock (similar to Unlock.jsx)
-  const handleUnlock = async () => {
-    if (!pinInput || pinInput.length !== 4) {
-      setError('PIN must be 4 digits');
-      return;
+    if (auth.selectedBusinessId) {
+      logAccess();
     }
+  }, [auth.selectedBusinessId, auth.userRole, security]);
 
-    // Get stored PIN from user profile
-    let storedPin = profile?.pin;
+  const styles = {
+    container: {
+      ...TavariStyles.layout.container,
+      maxWidth: '1200px',
+      margin: '0 auto'
+    },
 
-    if (!storedPin && profile?.id) {
-      const { data: userRow } = await supabase
-        .from('users')
-        .select('pin')
-        .eq('id', profile.id)
-        .maybeSingle();
+    // No access screen using Tavari styles
+    noAccess: {
+      ...TavariStyles.layout.card,
+      textAlign: 'center',
+      padding: TavariStyles.spacing['6xl'],
+      margin: '40px auto',
+      maxWidth: '500px'
+    },
 
-      storedPin = userRow?.pin;
-    }
+    lockIcon: {
+      color: TavariStyles.colors.gray500,
+      marginBottom: TavariStyles.spacing.lg
+    },
 
-    if (!storedPin) {
-      setError('No PIN configured for your account');
-      return;
-    }
+    noAccessTitle: {
+      fontSize: TavariStyles.typography.fontSize['2xl'],
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.md
+    },
 
-    try {
-      const pinMatches = await bcrypt.compare(pinInput, storedPin);
+    noAccessText: {
+      fontSize: TavariStyles.typography.fontSize.lg,
+      color: TavariStyles.colors.gray600,
+      marginBottom: TavariStyles.spacing.md,
+      lineHeight: TavariStyles.typography.lineHeight.relaxed
+    },
 
-      if (pinMatches) {
-        setIsLocked(false);
-        setError('');
-        setFailedAttempts(0);
-        setPinInput('');
+    roleText: {
+      fontSize: TavariStyles.typography.fontSize.md,
+      color: TavariStyles.colors.gray500,
+      marginBottom: TavariStyles.spacing.md
+    },
 
-        // Log successful unlock
-        try {
-          await supabase.from('audit_logs').insert([{
-            user_id: profile?.id,
-            business_id: business?.id,          // ✅ include tenant
-            action: 'music_dashboard_unlock',
-            details: {
-              method: 'pin_unlock',
-              time: new Date().toISOString(),
-            },
-          }]);
-        } catch (logError) {
-          console.error('Error logging successful unlock:', logError);
-        }
+    accessInfo: {
+      fontSize: TavariStyles.typography.fontSize.md,
+      color: TavariStyles.colors.primary,
+      fontWeight: TavariStyles.typography.fontWeight.medium
+    },
 
-      } else {
-        const newFailedCount = failedAttempts + 1;
-        setFailedAttempts(newFailedCount);
-        setPinInput('');
+    // Header section
+    header: {
+      textAlign: 'center',
+      marginBottom: TavariStyles.spacing['4xl'],
+      paddingBottom: TavariStyles.spacing.xl,
+      borderBottom: `2px solid ${TavariStyles.colors.gray200}`
+    },
 
-        // Log failed attempt
-        try {
-          await supabase.from('audit_logs').insert([{
-            user_id: profile?.id,
-            business_id: business?.id,          // ✅ include tenant
-            action: 'failed_music_pin',
-            details: {
-              attempt: newFailedCount,
-              time: new Date().toISOString(),
-            },
-          }]);
-        } catch (logError) {
-          console.error('Error logging failed attempt:', logError);
-        }
+    headerIcon: {
+      color: TavariStyles.colors.primary,
+      marginBottom: TavariStyles.spacing.md
+    },
 
-        // Check for suspicious activity (3+ attempts in 10 minutes)
-        const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-        const { data: recentFailures } = await supabase
-          .from('audit_logs')
-          .select('id')
-          .eq('user_id', profile?.id)
-          .eq('action', 'failed_music_pin')
-          .gte('created_at', tenMinutesAgo);  // ✅ most schemas use created_at
+    title: {
+      fontSize: TavariStyles.typography.fontSize['3xl'],
+      fontWeight: TavariStyles.typography.fontWeight.bold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.md
+    },
 
-        if (recentFailures && recentFailures.length >= 3) {
-          try {
-            await supabase.from('audit_logs').insert([{
-              user_id: profile?.id,
-              business_id: business?.id,        // ✅ include tenant
-              action: 'suspicious_activity',
-              details: {
-                type: 'Music dashboard PIN brute force attempt',
-                attempts: recentFailures.length,
-                window: '10min',
-                triggeredAt: new Date().toISOString(),
-              },
-            }]);
-          } catch (logError) {
-            console.error('Error logging suspicious activity:', logError);
-          }
-        }
+    subtitle: {
+      fontSize: TavariStyles.typography.fontSize.lg,
+      color: TavariStyles.colors.gray600
+    },
 
-        if (newFailedCount >= 3) {
-          setError('Too many failed attempts. Contact an administrator.');
-        } else {
-          setError(`Incorrect PIN. Attempt ${newFailedCount} of 3.`);
-        }
-      }
-    } catch (error) {
-      console.error('Error comparing PIN:', error);
-      setError('Error validating PIN. Please try again.');
+    // Quick Player (always visible now)
+    playerSection: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.xl,
+      marginBottom: TavariStyles.spacing['4xl'],
+      border: `2px solid ${TavariStyles.colors.primary}`,
+      background: `linear-gradient(135deg, ${TavariStyles.colors.white} 0%, ${TavariStyles.colors.gray50} 100%)`
+    },
+
+    playerTitle: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.lg,
+      textAlign: 'center',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: TavariStyles.spacing.md
+    },
+
+    playerIcon: {
+      color: TavariStyles.colors.primary
+    },
+
+    // Quick actions grid
+    actionsSection: {
+      marginBottom: TavariStyles.spacing['4xl']
+    },
+
+    actionsGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+      gap: TavariStyles.spacing.xl
+    },
+
+    actionCard: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing['3xl'],
+      textAlign: 'center',
+      cursor: 'pointer',
+      transition: TavariStyles.transitions.normal,
+      border: `2px solid ${TavariStyles.colors.gray200}`
+    },
+
+    actionIcon: {
+      color: TavariStyles.colors.primary,
+      marginBottom: TavariStyles.spacing.lg
+    },
+
+    actionTitle: {
+      fontSize: TavariStyles.typography.fontSize.xl,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.md
+    },
+
+    actionDescription: {
+      fontSize: TavariStyles.typography.fontSize.md,
+      color: TavariStyles.colors.gray600,
+      lineHeight: TavariStyles.typography.lineHeight.relaxed
+    },
+
+    // Monitor section
+    monitorSection: {
+      marginBottom: TavariStyles.spacing['4xl']
+    },
+
+    // Security settings section
+    securitySection: {
+      ...TavariStyles.layout.card,
+      padding: TavariStyles.spacing.xl,
+      marginBottom: TavariStyles.spacing.xl
+    },
+
+    securityTitle: {
+      fontSize: TavariStyles.typography.fontSize.lg,
+      fontWeight: TavariStyles.typography.fontWeight.semibold,
+      color: TavariStyles.colors.gray800,
+      marginBottom: TavariStyles.spacing.lg
+    },
+
+    checkboxContainer: {
+      display: 'flex',
+      alignItems: 'center',
+      marginBottom: TavariStyles.spacing.md
     }
   };
 
   // Don't render if user doesn't have access
-  if (!hasAccess()) {
+  if (!auth.hasRole(['manager', 'owner'])) {
     return (
-      <SessionManager>
-        <div style={styles.container}>
-          <div style={styles.noAccess}>
-            <FiLock size={48} style={styles.lockIcon} />
-            <h2 style={styles.noAccessTitle}>Access Denied</h2>
-            <p style={styles.noAccessText}>
-              You do not have permission to access the Music Dashboard.
-            </p>
-            <p style={styles.roleText}>
-              Current role: {userRole || 'Unknown'}
-            </p>
-            <p style={styles.accessInfo}>
-              Required roles: Manager, Admin, or Owner
-            </p>
+      <POSAuthWrapper 
+        componentName="MusicDashboard"
+        requiredRoles={['manager', 'owner']}
+      >
+        <SecurityWrapper 
+          componentName="MusicDashboard"
+          sensitiveComponent={true}
+        >
+          <div style={styles.container}>
+            <div style={styles.noAccess}>
+              <FiLock size={48} style={styles.lockIcon} />
+              <h2 style={styles.noAccessTitle}>Access Denied</h2>
+              <p style={styles.noAccessText}>
+                You do not have permission to access the Music Dashboard.
+              </p>
+              <p style={styles.roleText}>
+                Current role: {auth.userRole || 'Unknown'}
+              </p>
+              <p style={styles.accessInfo}>
+                Required roles: Manager or Owner
+              </p>
+            </div>
           </div>
-        </div>
-      </SessionManager>
+        </SecurityWrapper>
+      </POSAuthWrapper>
     );
   }
 
   return (
-    <SessionManager>
-      <div style={styles.container}>
-        {/* PIN Entry Modal */}
-        {isLocked && (
-          <div style={styles.lockOverlay}>
-            <div style={styles.lockModal}>
-              <FiLock size={48} style={styles.modalLockIcon} />
-              <h2 style={styles.lockTitle}>Music Dashboard Locked</h2>
-              <p style={styles.lockSubtitle}>
-                Please enter your 4-digit PIN to continue.
-              </p>
-              
-              <input
-                type="password"
-                maxLength={4}
-                style={styles.pinInput}
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    handleUnlock();
-                  }
-                }}
-                placeholder="••••"
-                autoFocus
+    <POSAuthWrapper 
+      componentName="MusicDashboard"
+      requiredRoles={['manager', 'owner']}
+    >
+      <SecurityWrapper 
+        componentName="MusicDashboard"
+        sensitiveComponent={true}
+      >
+        <div style={styles.container}>
+          {/* Header */}
+          <div style={styles.header}>
+            <FiMusic size={48} style={styles.headerIcon} />
+            <h1 style={styles.title}>Tavari Music Dashboard</h1>
+            <p style={styles.subtitle}>
+              {auth.businessData?.name ? `Managing music for ${auth.businessData.name}` : 'Music Management System'}
+            </p>
+          </div>
+
+          {/* Quick Player (Always Visible) */}
+          <div style={styles.playerSection}>
+            <h3 style={styles.playerTitle}>
+              <FiMusic style={styles.playerIcon} />
+              Quick Music Player
+            </h3>
+            <div style={{ width: '100%' }}>
+              <AudioPlayer />
+            </div>
+          </div>
+
+          {/* Security Settings */}
+          <div style={styles.securitySection}>
+            <h3 style={styles.securityTitle}>Security Settings</h3>
+            <div style={styles.checkboxContainer}>
+              <TavariCheckbox
+                checked={autoLockEnabled}
+                onChange={setAutoLockEnabled}
+                label="Auto-lock after 15 minutes of inactivity (handled by SidebarNav)"
+                size="md"
+                disabled={true}
               />
+            </div>
+            <p style={{ fontSize: TavariStyles.typography.fontSize.sm, color: TavariStyles.colors.gray500 }}>
+              PIN protection is now managed centrally by the navigation system.
+            </p>
+          </div>
 
-              <button 
-                onClick={handleUnlock} 
-                style={styles.unlockButton}
-                disabled={failedAttempts >= 3}
+          {/* Quick Actions Section */}
+          <div style={styles.actionsSection}>
+            <div style={styles.actionsGrid}>
+              <div 
+                style={styles.actionCard}
+                onClick={() => navigate('/dashboard/music/upload')}
+                onMouseEnter={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.primary;
+                  e.target.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.gray200;
+                  e.target.style.transform = 'translateY(0)';
+                }}
               >
-                {failedAttempts >= 3 ? 'Locked' : 'Unlock'}
-              </button>
-
-              {error && <p style={styles.errorText}>{error}</p>}
+                <FiUpload size={32} style={styles.actionIcon} />
+                <h3 style={styles.actionTitle}>Upload Music</h3>
+                <p style={styles.actionDescription}>
+                  Add new songs to your music library
+                </p>
+              </div>
               
-              <div style={styles.attemptsText}>
-                Attempts: {failedAttempts}/3
+              <div 
+                style={styles.actionCard}
+                onClick={() => navigate('/dashboard/music/library')}
+                onMouseEnter={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.primary;
+                  e.target.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.gray200;
+                  e.target.style.transform = 'translateY(0)';
+                }}
+              >
+                <FiMusic size={32} style={styles.actionIcon} />
+                <h3 style={styles.actionTitle}>Music Library</h3>
+                <p style={styles.actionDescription}>
+                  View and manage your song collection
+                </p>
+              </div>
+              
+              <div 
+                style={styles.actionCard}
+                onClick={() => navigate('/dashboard/music/playlists')}
+                onMouseEnter={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.primary;
+                  e.target.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.gray200;
+                  e.target.style.transform = 'translateY(0)';
+                }}
+              >
+                <FiList size={32} style={styles.actionIcon} />
+                <h3 style={styles.actionTitle}>Playlists</h3>
+                <p style={styles.actionDescription}>
+                  Create and manage custom playlists
+                </p>
+              </div>
+              
+              <div 
+                style={styles.actionCard}
+                onClick={() => navigate('/dashboard/music/settings')}
+                onMouseEnter={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.primary;
+                  e.target.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.gray200;
+                  e.target.style.transform = 'translateY(0)';
+                }}
+              >
+                <FiSettings size={32} style={styles.actionIcon} />
+                <h3 style={styles.actionTitle}>Music Settings</h3>
+                <p style={styles.actionDescription}>
+                  Configure volume, shuffle, and preferences
+                </p>
+              </div>
+
+              {/* Advanced player card */}
+              <div 
+                style={styles.actionCard}
+                onClick={() => navigate('/dashboard/music/player')}
+                onMouseEnter={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.primary;
+                  e.target.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.borderColor = TavariStyles.colors.gray200;
+                  e.target.style.transform = 'translateY(0)';
+                }}
+              >
+                <FiPlay size={32} style={styles.actionIcon} />
+                <h3 style={styles.actionTitle}>Advanced Player</h3>
+                <p style={styles.actionDescription}>
+                  Full-featured player with detailed controls
+                </p>
+              </div>
+
+              {/* System status card */}
+              <div 
+                style={{
+                  ...styles.actionCard,
+                  borderColor: security.securityState.isSecure ? TavariStyles.colors.success : TavariStyles.colors.warning
+                }}
+              >
+                {security.securityState.isSecure ? <FiWifi size={32} style={{...styles.actionIcon, color: TavariStyles.colors.success}} /> : <FiWifiOff size={32} style={{...styles.actionIcon, color: TavariStyles.colors.warning}} />}
+                <h3 style={styles.actionTitle}>System Status</h3>
+                <p style={styles.actionDescription}>
+                  {security.securityState.isSecure ? 'All systems operational' : 'Security warnings detected'}
+                </p>
               </div>
             </div>
           </div>
-        )}
 
-        <div style={styles.header}>
-          <FiMusic size={32} style={styles.headerIcon} />
-          <h1 style={styles.title}>Tavari Music Dashboard</h1>
-          <p style={styles.subtitle}>
-            {business?.name ? `Managing music for ${business.name}` : 'Music Management System'}
-          </p>
-        </div>
-		
-        {/* Quick Actions Section */}
-        <div style={styles.actionsSection}>
-          <div style={styles.actionsGrid}>
-            <div 
-              style={styles.actionCard}
-              onClick={() => navigate('/dashboard/music/upload')}
-            >
-              <FiUpload size={32} style={styles.actionIcon} />
-              <h3 style={styles.actionTitle}>Upload Music</h3>
-              <p style={styles.actionDescription}>
-                Add new songs to your music library
-              </p>
-            </div>
-            
-            <div 
-              style={styles.actionCard}
-              onClick={() => navigate('/dashboard/music/library')}
-            >
-              <FiMusic size={32} style={styles.actionIcon} />
-              <h3 style={styles.actionTitle}>Music Library</h3>
-              <p style={styles.actionDescription}>
-                View and manage your song collection
-              </p>
-            </div>
-            
-            <div 
-              style={styles.actionCard}
-              onClick={() => navigate('/dashboard/music/playlists')}
-            >
-              <FiList size={32} style={styles.actionIcon} />
-              <h3 style={styles.actionTitle}>Playlists</h3>
-              <p style={styles.actionDescription}>
-                Create and manage custom playlists
-              </p>
-            </div>
-            
-            <div 
-              style={styles.actionCard}
-              onClick={() => navigate('/dashboard/music/settings')}
-            >
-              <FiSettings size={32} style={styles.actionIcon} />
-              <h3 style={styles.actionTitle}>Music Settings</h3>
-              <p style={styles.actionDescription}>
-                Configure volume, shuffle, and preferences
-              </p>
-            </div>
+          {/* System Monitor */}
+          <div style={styles.monitorSection}>
+            <SystemMonitor />
           </div>
-        </div>
 
-        {/* Full Width Music Player */}
-        <div style={styles.playerSection}>
-          <h3 style={styles.playerTitle}>Music Player</h3>
-          <div style={styles.fullWidthPlayer}>
-            <AudioPlayer />
-          </div>
+          {/* Security Status Display */}
+          {security.securityState.threats.length > 0 && (
+            <div style={{
+              ...TavariStyles.components.banner.base,
+              ...TavariStyles.components.banner.variants.warning,
+              position: 'fixed',
+              bottom: TavariStyles.spacing.lg,
+              right: TavariStyles.spacing.lg,
+              maxWidth: '300px',
+              zIndex: 1000
+            }}>
+              Security Alert: {security.securityState.threats.length} threat(s) detected
+            </div>
+          )}
         </div>
-		
-        {/* System Monitor */}
-        <div style={styles.monitorSection}>
-          <SystemMonitor />
-        </div>
-      </div>
-    </SessionManager>
+      </SecurityWrapper>
+    </POSAuthWrapper>
   );
-};
-
-const styles = {
-  container: {
-    width: '100%',
-    maxWidth: '1200px',
-    margin: '0 auto',
-  },
-  noAccess: {
-    textAlign: 'center',
-    padding: '60px 40px',
-    backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    border: '2px solid #e9ecef',
-    margin: '40px auto',
-    maxWidth: '500px',
-  },
-  lockIcon: {
-    color: '#6c757d',
-    marginBottom: '20px',
-  },
-  noAccessTitle: {
-    fontSize: '24px',
-    fontWeight: 'bold',
-    color: '#333',
-    margin: '0 0 15px 0',
-  },
-  noAccessText: {
-    fontSize: '16px',
-    color: '#666',
-    margin: '0 0 10px 0',
-    lineHeight: '1.5',
-  },
-  roleText: {
-    fontSize: '14px',
-    color: '#999',
-    margin: '10px 0',
-  },
-  accessInfo: {
-    fontSize: '14px',
-    color: '#20c997',
-    fontWeight: '500',
-    margin: '15px 0 0 0',
-  },
-  header: {
-    textAlign: 'center',
-    marginBottom: '40px',
-    paddingBottom: '20px',
-    borderBottom: '2px solid #e9ecef',
-  },
-  headerIcon: {
-    color: '#20c997',
-    marginBottom: '10px',
-  },
-  title: {
-    fontSize: '28px',
-    fontWeight: 'bold',
-    color: '#333',
-    margin: '10px 0',
-  },
-  subtitle: {
-    fontSize: '16px',
-    color: '#666',
-    margin: '0',
-  },
-  actionsSection: {
-    marginBottom: '40px',
-  },
-  actionsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-    gap: '20px',
-  },
-  actionCard: {
-    backgroundColor: '#fff',
-    padding: '30px',
-    borderRadius: '8px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-    border: '2px solid #e9ecef',
-    textAlign: 'center',
-    cursor: 'pointer',
-    transition: 'all 0.2s',
-  },
-  actionIcon: {
-    color: '#20c997',
-    marginBottom: '15px',
-  },
-  actionTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#333',
-    margin: '0 0 10px 0',
-  },
-  actionDescription: {
-    fontSize: '14px',
-    color: '#666',
-    margin: '0',
-    lineHeight: '1.4',
-  },
-  playerSection: {
-    marginBottom: '40px',
-  },
-  playerTitle: {
-    fontSize: '20px',
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: '20px',
-    textAlign: 'center',
-  },
-  fullWidthPlayer: {
-    width: '100%',
-  },
-  monitorSection: {
-    marginBottom: '40px',
-  },
-  
-  // Lock overlay styles
-  lockOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-  },
-  lockModal: {
-    backgroundColor: '#fff',
-    borderRadius: '12px',
-    padding: '40px',
-    textAlign: 'center',
-    maxWidth: '400px',
-    width: '90%',
-    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
-  },
-  modalLockIcon: {
-    color: '#20c997',
-    marginBottom: '20px',
-  },
-  lockTitle: {
-    fontSize: '24px',
-    fontWeight: 'bold',
-    color: '#333',
-    margin: '0 0 10px 0',
-  },
-  lockSubtitle: {
-    fontSize: '16px',
-    color: '#666',
-    margin: '0 0 30px 0',
-  },
-  pinInput: {
-    fontSize: '24px',
-    padding: '15px',
-    textAlign: 'center',
-    width: '120px',
-    margin: '0 auto 20px auto',
-    display: 'block',
-    border: '2px solid #e9ecef',
-    borderRadius: '8px',
-    fontFamily: 'monospace',
-    letterSpacing: '8px',
-  },
-  unlockButton: {
-    padding: '12px 30px',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    backgroundColor: '#20c997',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    marginBottom: '15px',
-    transition: 'background-color 0.2s',
-  },
-  errorText: {
-    color: '#dc3545',
-    fontSize: '14px',
-    margin: '10px 0',
-    fontWeight: '500',
-  },
-  attemptsText: {
-    fontSize: '12px',
-    color: '#999',
-    margin: '10px 0 0 0',
-  },
-  
-  // Responsive breakpoints
-  '@media (max-width: 768px)': {
-    actionsGrid: {
-      gridTemplateColumns: '1fr',
-      gap: '15px',
-    },
-  },
 };
 
 export default MusicDashboard;

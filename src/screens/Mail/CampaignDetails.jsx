@@ -1,8 +1,9 @@
-// screens/Mail/CampaignDetails.jsx - Step 132: Sending History & Logs
+// screens/Mail/CampaignDetails.jsx - Step 132: Sending History & Logs with Pause Protection
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useBusiness } from '../../contexts/BusinessContext';
+import EmailPauseBanner, { blockEmailSendIfPaused } from '../../components/EmailPauseBanner';
 import {
   FiArrowLeft, FiMail, FiUsers, FiCheckCircle, FiXCircle, 
   FiClock, FiRefreshCw, FiDownload, FiEye, FiEdit3,
@@ -149,6 +150,17 @@ const CampaignDetails = () => {
     window.URL.revokeObjectURL(url);
   };
 
+  // Protected navigation functions
+  const handleEditCampaign = () => {
+    if (blockEmailSendIfPaused('Campaign editing')) return;
+    navigate(`/dashboard/mail/builder/${campaignId}`);
+  };
+
+  const handleSendCampaign = () => {
+    if (blockEmailSendIfPaused('Campaign sending')) return;
+    navigate(`/dashboard/mail/sender/${campaignId}`);
+  };
+
   // Calculate stats
   const stats = {
     total: sendLogs.length,
@@ -191,6 +203,9 @@ const CampaignDetails = () => {
 
   return (
     <div style={styles.container}>
+      {/* Email Pause Banner */}
+      <EmailPauseBanner />
+
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
@@ -210,7 +225,7 @@ const CampaignDetails = () => {
           {campaign.status === 'draft' && (
             <button 
               style={styles.editButton}
-              onClick={() => navigate(`/dashboard/mail/builder/${campaignId}`)}
+              onClick={handleEditCampaign}
             >
               <FiEdit3 style={styles.buttonIcon} />
               Edit
@@ -223,6 +238,15 @@ const CampaignDetails = () => {
             <FiEye style={styles.buttonIcon} />
             Preview
           </button>
+          {(campaign.status === 'draft' || campaign.status === 'ready') && (
+            <button 
+              style={styles.sendButton}
+              onClick={handleSendCampaign}
+            >
+              <FiSend style={styles.buttonIcon} />
+              Send Campaign
+            </button>
+          )}
         </div>
       </div>
 
@@ -339,8 +363,64 @@ const CampaignDetails = () => {
                   <span style={styles.detailLabel}>Subject Line:</span>
                   <span style={styles.detailValue}>{campaign.subject_line}</span>
                 </div>
+
+                {campaign.preheader_text && (
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Preheader:</span>
+                    <span style={styles.detailValue}>{campaign.preheader_text}</span>
+                  </div>
+                )}
+
+                <div style={styles.detailItem}>
+                  <span style={styles.detailLabel}>Total Recipients:</span>
+                  <span style={styles.detailValue}>{campaign.total_recipients || stats.total}</span>
+                </div>
+
+                <div style={styles.detailItem}>
+                  <span style={styles.detailLabel}>Emails Sent:</span>
+                  <span style={styles.detailValue}>{campaign.emails_sent || stats.sent}</span>
+                </div>
+
+                {campaign.status === 'sent' && (
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Delivery Rate:</span>
+                    <span style={styles.detailValue}>{successRate}%</span>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Quick Actions */}
+            {(campaign.status === 'draft' || campaign.status === 'ready') && (
+              <div style={styles.quickActions}>
+                <h3 style={styles.sectionTitle}>Quick Actions</h3>
+                <div style={styles.actionButtons}>
+                  {campaign.status === 'draft' && (
+                    <button 
+                      style={styles.actionButton}
+                      onClick={handleEditCampaign}
+                    >
+                      <FiEdit3 style={styles.buttonIcon} />
+                      Continue Editing
+                    </button>
+                  )}
+                  <button 
+                    style={styles.actionButton}
+                    onClick={() => navigate(`/dashboard/mail/preview/${campaignId}`)}
+                  >
+                    <FiEye style={styles.buttonIcon} />
+                    Preview Email
+                  </button>
+                  <button 
+                    style={styles.primaryActionButton}
+                    onClick={handleSendCampaign}
+                  >
+                    <FiSend style={styles.buttonIcon} />
+                    Send Campaign
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -363,6 +443,15 @@ const CampaignDetails = () => {
                 <FiMail style={styles.emptyIcon} />
                 <h4>No Send Logs Found</h4>
                 <p>This campaign hasn't been sent yet or no logs are available.</p>
+                {(campaign.status === 'draft' || campaign.status === 'ready') && (
+                  <button 
+                    style={styles.emptySendButton}
+                    onClick={handleSendCampaign}
+                  >
+                    <FiSend style={styles.buttonIcon} />
+                    Send Campaign Now
+                  </button>
+                )}
               </div>
             ) : (
               <div style={styles.logsTable}>
@@ -420,6 +509,7 @@ const CampaignDetails = () => {
               <FiBarChart2 style={styles.comingSoonIcon} />
               <h3>Analytics Coming Soon</h3>
               <p>Email engagement analytics will be available in a future update.</p>
+              <p>Track opens, clicks, unsubscribes, and more detailed metrics.</p>
             </div>
           </div>
         )}
@@ -484,6 +574,7 @@ const styles = {
     alignItems: 'center',
     gap: '8px',
     marginBottom: '15px',
+    transition: 'all 0.2s ease',
   },
   buttonIcon: {
     fontSize: '14px',
@@ -506,6 +597,7 @@ const styles = {
     display: 'flex',
     gap: '12px',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   editButton: {
     backgroundColor: 'white',
@@ -519,8 +611,23 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    transition: 'all 0.2s ease',
   },
   previewButton: {
+    backgroundColor: '#666',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '12px 20px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    transition: 'all 0.2s ease',
+  },
+  sendButton: {
     backgroundColor: 'teal',
     color: 'white',
     border: 'none',
@@ -532,6 +639,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    transition: 'all 0.2s ease',
   },
   statsGrid: {
     display: 'grid',
@@ -611,6 +719,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    transition: 'all 0.2s ease',
   },
   tabContent: {
     backgroundColor: 'white',
@@ -629,6 +738,7 @@ const styles = {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, 1fr)',
     gap: '15px',
+    marginBottom: '30px',
   },
   detailItem: {
     display: 'flex',
@@ -651,6 +761,43 @@ const styles = {
     fontSize: '12px',
     fontWeight: 'bold',
     textTransform: 'capitalize',
+  },
+  quickActions: {
+    borderTop: '1px solid #f0f0f0',
+    paddingTop: '20px',
+  },
+  actionButtons: {
+    display: 'flex',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  actionButton: {
+    backgroundColor: 'white',
+    color: 'teal',
+    border: '2px solid teal',
+    borderRadius: '8px',
+    padding: '12px 20px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    transition: 'all 0.2s ease',
+  },
+  primaryActionButton: {
+    backgroundColor: 'teal',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '12px 20px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    transition: 'all 0.2s ease',
   },
   logsHeader: {
     display: 'flex',
@@ -676,6 +823,21 @@ const styles = {
     marginBottom: '15px',
     color: '#ccc',
   },
+  emptySendButton: {
+    backgroundColor: 'teal',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '12px 20px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginTop: '15px',
+    transition: 'all 0.2s ease',
+  },
   logsTable: {
     overflow: 'auto',
   },
@@ -696,6 +858,7 @@ const styles = {
   },
   tableRow: {
     borderBottom: '1px solid #f0f0f0',
+    transition: 'background-color 0.2s ease',
   },
   tableCell: {
     padding: '12px',
@@ -733,6 +896,54 @@ const styles = {
     marginBottom: '15px',
     color: '#ccc',
   },
+  
+  // Mobile responsiveness
+  '@media (max-width: 768px)': {
+    container: {
+      padding: '20px',
+    },
+    header: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      gap: '15px',
+    },
+    headerActions: {
+      justifyContent: 'stretch',
+    },
+    statsGrid: {
+      gridTemplateColumns: 'repeat(2, 1fr)',
+    },
+    detailsGrid: {
+      gridTemplateColumns: '1fr',
+    },
+    actionButtons: {
+      flexDirection: 'column',
+    },
+    tabsContainer: {
+      flexDirection: 'column',
+      gap: '15px',
+      alignItems: 'stretch',
+    },
+    tabs: {
+      flexDirection: 'column',
+    },
+  },
 };
+
+// Add CSS animation for spinning icons
+if (!document.querySelector('#campaign-details-styles')) {
+  const styleSheet = document.createElement('style');
+  styleSheet.id = 'campaign-details-styles';
+  styleSheet.textContent = `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .campaign-details-table-row:hover {
+      background-color: #f9f9f9 !important;
+    }
+  `;
+  document.head.appendChild(styleSheet);
+}
 
 export default CampaignDetails;

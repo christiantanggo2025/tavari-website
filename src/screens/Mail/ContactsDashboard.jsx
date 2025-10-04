@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUsers, FiUserPlus, FiUserCheck, FiUserX, FiUpload, FiSearch, FiFilter } from 'react-icons/fi';
+import EmailPauseBanner, { blockEmailSendIfPaused } from '../../components/EmailPauseBanner';
 
 const ContactsDashboard = () => {
   const navigate = useNavigate();
@@ -48,6 +49,20 @@ const ContactsDashboard = () => {
     navigate(path);
   };
 
+  const handleImportContacts = () => {
+    // Block if email sending is paused since imports might trigger welcome emails
+    if (blockEmailSendIfPaused('Contact import')) return;
+    
+    navigateTo('/dashboard/mail/contacts/import');
+  };
+
+  const handleAddContact = () => {
+    // Block if email sending is paused since adding contacts might trigger confirmation emails
+    if (blockEmailSendIfPaused('Adding contacts')) return;
+    
+    navigateTo('/dashboard/mail/contacts/add');
+  };
+
   if (loading) {
     return (
       <div style={styles.container}>
@@ -58,6 +73,11 @@ const ContactsDashboard = () => {
 
   return (
     <div style={styles.container}>
+      {/* Email Pause Banner */}
+      <EmailPauseBanner 
+        customMessage="Contact imports and email notifications are currently blocked. Go to Mail Settings to enable sending."
+      />
+
       {/* Header */}
       <div style={styles.header}>
         <h1 style={styles.title}>Contact Management</h1>
@@ -107,7 +127,7 @@ const ContactsDashboard = () => {
         <div style={styles.buttonGrid}>
           <button 
             style={styles.primaryButton}
-            onClick={() => navigateTo('/dashboard/mail/contacts/add')}
+            onClick={handleAddContact}
           >
             <FiUserPlus style={styles.buttonIcon} />
             <span style={styles.buttonText}>Add Contact</span>
@@ -115,7 +135,7 @@ const ContactsDashboard = () => {
           
           <button 
             style={styles.primaryButton}
-            onClick={() => navigateTo('/dashboard/mail/contacts/import')}
+            onClick={handleImportContacts}
           >
             <FiUpload style={styles.buttonIcon} />
             <span style={styles.buttonText}>Import Contacts</span>

@@ -1,27 +1,17 @@
-// src/hooks/useMusicService.js
+// src/hooks/useMusicService.js - NON-INITIALIZING HOOK
 import { useEffect } from 'react';
 import { globalMusicService } from '../services/GlobalMusicService';
-import { useBusiness } from '../contexts/BusinessContext';
 
 export const useMusicService = () => {
-  const { business } = useBusiness();
+  // If you want to attach global window listeners or analytics later, do it here.
+  // IMPORTANT: Do NOT initialize here. App.jsx owns initialization.
 
   useEffect(() => {
-    if (business?.id) {
-      console.log('🎵 Initializing music service for business:', business.id);
-      
-      // Initialize the global music service
-      globalMusicService.initialize(business.id);
-      
-      // Start schedule monitoring
-      globalMusicService.startScheduleMonitoring();
-      
-      return () => {
-        // Don't destroy on unmount - let it keep playing
-        console.log('🎵 Music service continues running in background');
-      };
-    }
-  }, [business?.id]);
+    // no-op on mount
+    return () => {
+      // no-op on unmount
+    };
+  }, []);
 
   return globalMusicService;
 };

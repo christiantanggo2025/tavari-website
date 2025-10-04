@@ -1,0 +1,1248 @@
+[
+  {
+    "constraint_name": "audit_logs_business_id_fkey",
+    "source_table": "audit_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "audit_logs_user_id_fkey",
+    "source_table": "audit_logs",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "business_users_business_id_fkey",
+    "source_table": "business_users",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "business_users_user_id_fkey",
+    "source_table": "business_users",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "businesses_created_by_fkey",
+    "source_table": "businesses",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "identities_user_id_fkey",
+    "source_table": "identities",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "inventory_business_id_fkey",
+    "source_table": "inventory",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_ab_experiments_campaign_id_fkey",
+    "source_table": "mail_ab_experiments",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_audit_logs_business_id_fkey",
+    "source_table": "mail_audit_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_billing_business_id_fkey",
+    "source_table": "mail_billing",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_bounces_business_id_fkey",
+    "source_table": "mail_bounces",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_bounces_campaign_id_fkey",
+    "source_table": "mail_bounces",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_bounces_campaign_send_id_fkey",
+    "source_table": "mail_bounces",
+    "source_column": "campaign_send_id",
+    "target_table": "mail_campaign_sends",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_bounces_contact_id_fkey",
+    "source_table": "mail_bounces",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_campaign_audit_business_id_fkey",
+    "source_table": "mail_campaign_audit",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_campaign_audit_campaign_id_fkey",
+    "source_table": "mail_campaign_audit",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_campaign_schedules_campaign_id_fkey",
+    "source_table": "mail_campaign_schedules",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_campaign_sends_campaign_id_fkey",
+    "source_table": "mail_campaign_sends",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_campaign_sends_contact_id_fkey",
+    "source_table": "mail_campaign_sends",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_campaigns_business_id_fkey",
+    "source_table": "mail_campaigns",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_campaigns_created_by_fkey",
+    "source_table": "mail_campaigns",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_consent_log_business_id_fkey",
+    "source_table": "mail_consent_log",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_consent_log_contact_id_fkey",
+    "source_table": "mail_consent_log",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_communications_business_id_fkey",
+    "source_table": "mail_contact_communications",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_communications_campaign_id_fkey",
+    "source_table": "mail_contact_communications",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_communications_contact_id_fkey",
+    "source_table": "mail_contact_communications",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_preferences_log_business_id_fkey",
+    "source_table": "mail_contact_preferences_log",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_preferences_log_contact_id_fkey",
+    "source_table": "mail_contact_preferences_log",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_segment_memberships_business_id_fkey",
+    "source_table": "mail_contact_segment_memberships",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_segment_memberships_contact_id_fkey",
+    "source_table": "mail_contact_segment_memberships",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_segment_memberships_segment_id_fkey",
+    "source_table": "mail_contact_segment_memberships",
+    "source_column": "segment_id",
+    "target_table": "mail_contact_segments",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contact_segments_business_id_fkey",
+    "source_table": "mail_contact_segments",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_contacts_business_id_fkey",
+    "source_table": "mail_contacts",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_household_id",
+    "source_table": "mail_contacts",
+    "source_column": "household_id",
+    "target_table": "mail_households",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_content_analytics_campaign_id_fkey",
+    "source_table": "mail_content_analytics",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_content_analytics_contact_id_fkey",
+    "source_table": "mail_content_analytics",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_domains_business_id_fkey",
+    "source_table": "mail_domains",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_email_usage_business_id_fkey",
+    "source_table": "mail_email_usage",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_email_usage_campaign_id_fkey",
+    "source_table": "mail_email_usage",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_error_logs_business_id_fkey",
+    "source_table": "mail_error_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_error_logs_campaign_id_fkey",
+    "source_table": "mail_error_logs",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_error_logs_contact_id_fkey",
+    "source_table": "mail_error_logs",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_error_logs_resolved_by_fkey",
+    "source_table": "mail_error_logs",
+    "source_column": "resolved_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_households_business_id_fkey",
+    "source_table": "mail_households",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_scheduled_campaigns_business_id_fkey",
+    "source_table": "mail_scheduled_campaigns",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_scheduled_campaigns_campaign_id_fkey",
+    "source_table": "mail_scheduled_campaigns",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_sending_queue_campaign_id_fkey",
+    "source_table": "mail_sending_queue",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_sending_queue_contact_id_fkey",
+    "source_table": "mail_sending_queue",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_settings_business_id_fkey",
+    "source_table": "mail_settings",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_subject_tests_campaign_id_fkey",
+    "source_table": "mail_subject_tests",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_unsubscribes_business_id_fkey",
+    "source_table": "mail_unsubscribes",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_unsubscribes_campaign_id_fkey",
+    "source_table": "mail_unsubscribes",
+    "source_column": "campaign_id",
+    "target_table": "mail_campaigns",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mail_unsubscribes_contact_id_fkey",
+    "source_table": "mail_unsubscribes",
+    "source_column": "contact_id",
+    "target_table": "mail_contacts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mfa_amr_claims_session_id_fkey",
+    "source_table": "mfa_amr_claims",
+    "source_column": "session_id",
+    "target_table": "sessions",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mfa_challenges_auth_factor_id_fkey",
+    "source_table": "mfa_challenges",
+    "source_column": "factor_id",
+    "target_table": "mfa_factors",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "mfa_factors_user_id_fkey",
+    "source_table": "mfa_factors",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_cache_business_id_fkey",
+    "source_table": "music_ad_cache",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_holiday_rules_business_id_fkey",
+    "source_table": "music_ad_holiday_rules",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_metadata_ad_id_fkey",
+    "source_table": "music_ad_metadata",
+    "source_column": "ad_id",
+    "target_table": "music_ads",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_plays_business_id_fkey",
+    "source_table": "music_ad_plays",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_revenue_detailed_ad_play_id_fkey",
+    "source_table": "music_ad_revenue_detailed",
+    "source_column": "ad_play_id",
+    "target_table": "music_ad_plays",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_revenue_detailed_business_id_fkey",
+    "source_table": "music_ad_revenue_detailed",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_approved_by_fkey",
+    "source_table": "music_ad_schedule",
+    "source_column": "approved_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_business_id_fkey",
+    "source_table": "music_ad_schedule",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_created_by_fkey",
+    "source_table": "music_ad_schedule",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_conflicts_business_id_fkey",
+    "source_table": "music_ad_schedule_conflicts",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_conflicts_primary_schedule_id_fkey",
+    "source_table": "music_ad_schedule_conflicts",
+    "source_column": "primary_schedule_id",
+    "target_table": "music_ad_schedule",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_conflicts_resolved_by_fkey",
+    "source_table": "music_ad_schedule_conflicts",
+    "source_column": "resolved_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_conflicts_secondary_schedule_id_fkey",
+    "source_table": "music_ad_schedule_conflicts",
+    "source_column": "secondary_schedule_id",
+    "target_table": "music_ad_schedule",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_conflicts_time_rule_id_fkey",
+    "source_table": "music_ad_schedule_conflicts",
+    "source_column": "time_rule_id",
+    "target_table": "music_ad_time_rules",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_performance_business_id_fkey",
+    "source_table": "music_ad_schedule_performance",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_schedule_performance_schedule_id_fkey",
+    "source_table": "music_ad_schedule_performance",
+    "source_column": "schedule_id",
+    "target_table": "music_ad_schedule",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_ad_time_rules_schedule_id_fkey",
+    "source_table": "music_ad_time_rules",
+    "source_column": "schedule_id",
+    "target_table": "music_ad_schedule",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_api_performance_business_id_fkey",
+    "source_table": "music_api_performance",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_business_ad_apis_api_id_fkey",
+    "source_table": "music_business_ad_apis",
+    "source_column": "api_id",
+    "target_table": "music_ad_apis",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_business_ad_apis_business_id_fkey",
+    "source_table": "music_business_ad_apis",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_business_hours_business_id_fkey",
+    "source_table": "music_business_hours",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_installations_business_id_fkey",
+    "source_table": "music_installations",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_license_keys_business_id_fkey",
+    "source_table": "music_license_keys",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_license_keys_created_by_fkey",
+    "source_table": "music_license_keys",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_local_ads_business_id_fkey",
+    "source_table": "music_local_ads",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_local_ads_uploaded_by_fkey",
+    "source_table": "music_local_ads",
+    "source_column": "uploaded_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlist_schedules_business_id_fkey",
+    "source_table": "music_playlist_schedules",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlist_schedules_created_by_fkey",
+    "source_table": "music_playlist_schedules",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlist_schedules_playlist_id_fkey",
+    "source_table": "music_playlist_schedules",
+    "source_column": "playlist_id",
+    "target_table": "music_playlists",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlist_templates_business_id_fkey",
+    "source_table": "music_playlist_templates",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlist_templates_created_by_fkey",
+    "source_table": "music_playlist_templates",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlist_tracks_playlist_id_fkey",
+    "source_table": "music_playlist_tracks",
+    "source_column": "playlist_id",
+    "target_table": "music_playlists",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlist_tracks_track_id_fkey",
+    "source_table": "music_playlist_tracks",
+    "source_column": "track_id",
+    "target_table": "music_tracks",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_playlists_business_id_fkey",
+    "source_table": "music_playlists",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_revenue_tracking_business_id_fkey",
+    "source_table": "music_revenue_tracking",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_settings_business_id_fkey",
+    "source_table": "music_settings",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_shuffle_rules_playlist_id_fkey",
+    "source_table": "music_shuffle_rules",
+    "source_column": "playlist_id",
+    "target_table": "music_playlists",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_system_health_installation_id_fkey",
+    "source_table": "music_system_health",
+    "source_column": "installation_id",
+    "target_table": "music_installations",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_system_logs_business_id_fkey",
+    "source_table": "music_system_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_tracks_business_id_fkey",
+    "source_table": "music_tracks",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "music_tracks_uploaded_by_fkey",
+    "source_table": "music_tracks",
+    "source_column": "uploaded_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "objects_bucketId_fkey",
+    "source_table": "objects",
+    "source_column": "bucket_id",
+    "target_table": "buckets",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "one_time_tokens_user_id_fkey",
+    "source_table": "one_time_tokens",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_audit_logs_actor_id_fkey",
+    "source_table": "pos_audit_logs",
+    "source_column": "actor_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_audit_logs_business_id_fkey",
+    "source_table": "pos_audit_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_cart_items_business_id_fkey",
+    "source_table": "pos_cart_items",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_cart_items_inventory_id_fkey",
+    "source_table": "pos_cart_items",
+    "source_column": "inventory_id",
+    "target_table": "inventory",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_cart_items_loyalty_customer_id_fkey",
+    "source_table": "pos_cart_items",
+    "source_column": "loyalty_customer_id",
+    "target_table": "pos_loyalty_accounts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_cart_items_user_id_fkey",
+    "source_table": "pos_cart_items",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_pos_categories_business_id",
+    "source_table": "pos_categories",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_custom_items_business_id_fkey",
+    "source_table": "pos_custom_items",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_custom_items_created_by_fkey",
+    "source_table": "pos_custom_items",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_discounts_business_id_fkey",
+    "source_table": "pos_discounts",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_inventory_business_id_fkey",
+    "source_table": "pos_inventory",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_inventory_category_id_fkey",
+    "source_table": "pos_inventory",
+    "source_column": "category_id",
+    "target_table": "pos_categories",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_accounts_business_id_fkey",
+    "source_table": "pos_loyalty_accounts",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_accounts_created_by_fkey",
+    "source_table": "pos_loyalty_accounts",
+    "source_column": "created_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_daily_usage_business_id_fkey",
+    "source_table": "pos_loyalty_daily_usage",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_daily_usage_loyalty_account_id_fkey",
+    "source_table": "pos_loyalty_daily_usage",
+    "source_column": "loyalty_account_id",
+    "target_table": "pos_loyalty_accounts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_settings_business_id_fkey",
+    "source_table": "pos_loyalty_settings",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_transactions_business_id_fkey",
+    "source_table": "pos_loyalty_transactions",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_transactions_loyalty_account_id_fkey",
+    "source_table": "pos_loyalty_transactions",
+    "source_column": "loyalty_account_id",
+    "target_table": "pos_loyalty_accounts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_loyalty_transactions_processed_by_fkey",
+    "source_table": "pos_loyalty_transactions",
+    "source_column": "processed_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_modifiers_business_id_fkey",
+    "source_table": "pos_modifiers",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_modifiers_category_id_fkey",
+    "source_table": "pos_modifiers",
+    "source_column": "category_id",
+    "target_table": "pos_categories",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_payments_business_id_fkey",
+    "source_table": "pos_payments",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_payments_processed_by_fkey",
+    "source_table": "pos_payments",
+    "source_column": "processed_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_payments_sale_id_fkey",
+    "source_table": "pos_payments",
+    "source_column": "sale_id",
+    "target_table": "pos_sales",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_qr_scans_business_id_fkey",
+    "source_table": "pos_qr_scans",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_qr_scans_scanned_by_fkey",
+    "source_table": "pos_qr_scans",
+    "source_column": "scanned_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_pos_receipt_logs_business",
+    "source_table": "pos_receipt_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_receipt_logs_business_id_fkey",
+    "source_table": "pos_receipt_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_receipt_logs_business",
+    "source_table": "pos_receipt_logs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_receipt_logs_user",
+    "source_table": "pos_receipt_logs",
+    "source_column": "printed_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_receipt_logs_printed_by_fkey",
+    "source_table": "pos_receipt_logs",
+    "source_column": "printed_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_pos_receipt_logs_user",
+    "source_table": "pos_receipt_logs",
+    "source_column": "printed_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_receipt_logs_sale",
+    "source_table": "pos_receipt_logs",
+    "source_column": "sale_id",
+    "target_table": "pos_sales",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_pos_receipt_logs_sale",
+    "source_table": "pos_receipt_logs",
+    "source_column": "sale_id",
+    "target_table": "pos_sales",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_receipt_logs_sale_id_fkey",
+    "source_table": "pos_receipt_logs",
+    "source_column": "sale_id",
+    "target_table": "pos_sales",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_receipts_business_id_fkey",
+    "source_table": "pos_receipts",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_receipts_sale_id_fkey",
+    "source_table": "pos_receipts",
+    "source_column": "sale_id",
+    "target_table": "pos_sales",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refund_items_business_id_fkey",
+    "source_table": "pos_refund_items",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refund_items_inventory_id_fkey",
+    "source_table": "pos_refund_items",
+    "source_column": "inventory_id",
+    "target_table": "pos_inventory",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refund_items_original_sale_item_id_fkey",
+    "source_table": "pos_refund_items",
+    "source_column": "original_sale_item_id",
+    "target_table": "pos_sale_items",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refund_items_refund_id_fkey",
+    "source_table": "pos_refund_items",
+    "source_column": "refund_id",
+    "target_table": "pos_refunds",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refunds_business_id_fkey",
+    "source_table": "pos_refunds",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refunds_manager_id_fkey",
+    "source_table": "pos_refunds",
+    "source_column": "manager_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refunds_original_sale_id_fkey",
+    "source_table": "pos_refunds",
+    "source_column": "original_sale_id",
+    "target_table": "pos_sales",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_refunds_refunded_by_fkey",
+    "source_table": "pos_refunds",
+    "source_column": "refunded_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_sale_items_inventory_id_fkey",
+    "source_table": "pos_sale_items",
+    "source_column": "inventory_id",
+    "target_table": "pos_inventory",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_sale_items_sale_id_fkey",
+    "source_table": "pos_sale_items",
+    "source_column": "sale_id",
+    "target_table": "pos_sales",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_sales_business_id_fkey",
+    "source_table": "pos_sales",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_sales_customer_id_fkey",
+    "source_table": "pos_sales",
+    "source_column": "customer_id",
+    "target_table": "pos_loyalty_accounts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_sales_loyalty_customer_id_fkey",
+    "source_table": "pos_sales",
+    "source_column": "loyalty_customer_id",
+    "target_table": "pos_loyalty_accounts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_sales_user_id_fkey",
+    "source_table": "pos_sales",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_saved_orders_business_id_fkey",
+    "source_table": "pos_saved_orders",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_saved_orders_saved_by_fkey",
+    "source_table": "pos_saved_orders",
+    "source_column": "saved_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_settings_business_id_fkey",
+    "source_table": "pos_settings",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_stations_business_id_fkey",
+    "source_table": "pos_stations",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_items_added_by_fkey",
+    "source_table": "pos_tab_items",
+    "source_column": "added_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_items_business_id_fkey",
+    "source_table": "pos_tab_items",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_items_inventory_id_fkey",
+    "source_table": "pos_tab_items",
+    "source_column": "inventory_id",
+    "target_table": "pos_inventory",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_items_paid_by_fkey",
+    "source_table": "pos_tab_items",
+    "source_column": "paid_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_items_product_id_fkey",
+    "source_table": "pos_tab_items",
+    "source_column": "product_id",
+    "target_table": "pos_inventory",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_items_tab_id_fkey",
+    "source_table": "pos_tab_items",
+    "source_column": "tab_id",
+    "target_table": "pos_tabs",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_payments_processed_by_fkey",
+    "source_table": "pos_tab_payments",
+    "source_column": "processed_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tab_payments_tab_id_fkey",
+    "source_table": "pos_tab_payments",
+    "source_column": "tab_id",
+    "target_table": "pos_tabs",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tabs_business_id_fkey",
+    "source_table": "pos_tabs",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tabs_loyalty_customer_id_fkey",
+    "source_table": "pos_tabs",
+    "source_column": "loyalty_customer_id",
+    "target_table": "pos_loyalty_accounts",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "pos_tabs_started_by_fkey",
+    "source_table": "pos_tabs",
+    "source_column": "started_by",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "prefixes_bucketId_fkey",
+    "source_table": "prefixes",
+    "source_column": "bucket_id",
+    "target_table": "buckets",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "refresh_tokens_session_id_fkey",
+    "source_table": "refresh_tokens",
+    "source_column": "session_id",
+    "target_table": "sessions",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "s3_multipart_uploads_bucket_id_fkey",
+    "source_table": "s3_multipart_uploads",
+    "source_column": "bucket_id",
+    "target_table": "buckets",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "s3_multipart_uploads_parts_bucket_id_fkey",
+    "source_table": "s3_multipart_uploads_parts",
+    "source_column": "bucket_id",
+    "target_table": "buckets",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "s3_multipart_uploads_parts_upload_id_fkey",
+    "source_table": "s3_multipart_uploads_parts",
+    "source_column": "upload_id",
+    "target_table": "s3_multipart_uploads",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "saml_providers_sso_provider_id_fkey",
+    "source_table": "saml_providers",
+    "source_column": "sso_provider_id",
+    "target_table": "sso_providers",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "saml_relay_states_flow_state_id_fkey",
+    "source_table": "saml_relay_states",
+    "source_column": "flow_state_id",
+    "target_table": "flow_state",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "saml_relay_states_sso_provider_id_fkey",
+    "source_table": "saml_relay_states",
+    "source_column": "sso_provider_id",
+    "target_table": "sso_providers",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "sessions_user_id_fkey",
+    "source_table": "sessions",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "sso_domains_sso_provider_id_fkey",
+    "source_table": "sso_domains",
+    "source_column": "sso_provider_id",
+    "target_table": "sso_providers",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "fk_user_roles_business_id",
+    "source_table": "user_roles",
+    "source_column": "business_id",
+    "target_table": "businesses",
+    "target_column": "id"
+  },
+  {
+    "constraint_name": "user_roles_user_id_fkey",
+    "source_table": "user_roles",
+    "source_column": "user_id",
+    "target_table": "users",
+    "target_column": "id"
+  }
+]

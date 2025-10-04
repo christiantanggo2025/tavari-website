@@ -1,0 +1,230 @@
+[
+  {
+    "routine_name": "update_updated_at",
+    "routine_definition": "\r\nBEGIN\r\n    NEW.updated_at = NOW();\r\n    RETURN NEW;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "record_schedule_performance",
+    "routine_definition": "\r\nBEGIN\r\n    INSERT INTO music_ad_schedule_performance (\r\n        schedule_id,\r\n        business_id,\r\n        date_recorded,\r\n        hour_of_day,\r\n        ads_served,\r\n        ads_failed,\r\n        total_revenue,\r\n        average_cpm,\r\n        api_performance,\r\n        fill_rate,\r\n        revenue_per_hour\r\n    ) VALUES (\r\n        p_schedule_id,\r\n        p_business_id,\r\n        CURRENT_DATE,\r\n        EXTRACT(HOUR FROM NOW()),\r\n        p_ads_served,\r\n        p_ads_failed,\r\n        p_revenue,\r\n        p_cpm,\r\n        p_api_data,\r\n        CASE \r\n            WHEN (p_ads_served + p_ads_failed) > 0 \r\n            THEN ROUND((p_ads_served::DECIMAL / (p_ads_served + p_ads_failed)) * 100, 2)\r\n            ELSE 0 \r\n        END,\r\n        p_revenue\r\n    )\r\n    ON CONFLICT (schedule_id, date_recorded, hour_of_day)\r\n    DO UPDATE SET\r\n        ads_served = music_ad_schedule_performance.ads_served + EXCLUDED.ads_served,\r\n        ads_failed = music_ad_schedule_performance.ads_failed + EXCLUDED.ads_failed,\r\n        total_revenue = music_ad_schedule_performance.total_revenue + EXCLUDED.total_revenue,\r\n        average_cpm = (music_ad_schedule_performance.average_cpm + EXCLUDED.average_cpm) / 2,\r\n        api_performance = music_ad_schedule_performance.api_performance || EXCLUDED.api_performance;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "get_contact_communication_summary",
+    "routine_definition": "\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT \r\n    COUNT(*)::INTEGER as total_communications,\r\n    COUNT(CASE WHEN communication_type = 'email' THEN 1 END)::INTEGER as emails_sent,\r\n    COUNT(CASE WHEN communication_type = 'email' AND opened_at IS NOT NULL THEN 1 END)::INTEGER as emails_opened,\r\n    COUNT(CASE WHEN communication_type = 'email' AND clicked_at IS NOT NULL THEN 1 END)::INTEGER as emails_clicked,\r\n    MAX(sent_at) as last_communication_at,\r\n    CASE \r\n      WHEN COUNT(CASE WHEN communication_type = 'email' THEN 1 END) > 0 \r\n      THEN ROUND(\r\n        COUNT(CASE WHEN communication_type = 'email' AND opened_at IS NOT NULL THEN 1 END)::DECIMAL / \r\n        COUNT(CASE WHEN communication_type = 'email' THEN 1 END)::DECIMAL * 100, 2\r\n      )\r\n      ELSE 0 \r\n    END as engagement_rate\r\n  FROM mail_contact_communications \r\n  WHERE contact_id = p_contact_id \r\n    AND sent_at >= (CURRENT_TIMESTAMP - INTERVAL '1 day' * p_days_back);\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_campaign_action",
+    "routine_definition": "\r\nBEGIN\r\n  INSERT INTO mail_campaign_audit \r\n  (business_id, campaign_id, user_id, action, field_name, old_value, new_value, \r\n   ip_address, user_agent, additional_data)\r\n  VALUES \r\n  (p_business_id, p_campaign_id, p_user_id, p_action, p_field_name, p_old_value, \r\n   p_new_value, p_ip_address, p_user_agent, p_additional_data);\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_updated_at_column",
+    "routine_definition": "\r\nBEGIN\r\n    NEW.updated_at = timezone('utc'::text, now());\r\n    RETURN NEW;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "calculate_billing_usage",
+    "routine_definition": "\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT \r\n    COUNT(*)::INTEGER as emails_sent,\r\n    (COUNT(*) * 0.0025)::DECIMAL(10,4) as cost\r\n  FROM mail_campaign_sends mcs\r\n  JOIN mail_campaigns mc ON mcs.campaign_id = mc.id\r\n  WHERE mc.business_id = p_business_id\r\n    AND mcs.status = 'sent'\r\n    AND DATE(mcs.sent_at) BETWEEN p_period_start AND p_period_end;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "create_user_with_role",
+    "routine_definition": "\r\ndeclare\r\n  new_user_id uuid;\r\nbegin\r\n  -- Step 1: Create auth user\r\n  insert into auth.users (email, encrypted_password)\r\n  values (email, crypt(password, gen_salt('bf')))\r\n  returning id into new_user_id;\r\n\r\n  -- Step 2: Insert into your users table\r\n  insert into public.users (\r\n    id, full_name, email, phone, hashed_password, pin, roles, start_date, end_date\r\n  ) values (\r\n    new_user_id, full_name, email, phone, crypt(password, gen_salt('bf')), crypt(pin_code, gen_salt('bf')),\r\n    array[role], start_date, end_date\r\n  );\r\n\r\n  -- Step 3: Link to business\r\n  insert into public.business_users (\r\n    business_id, user_id, role\r\n  ) values (\r\n    business_id, new_user_id, role\r\n  );\r\nend;\r\n"
+  },
+  {
+    "routine_name": "create_household",
+    "routine_definition": "\r\nDECLARE\r\n  new_household_id UUID;\r\n  contact_name TEXT;\r\nBEGIN\r\n  -- Get contact name for default household name\r\n  SELECT CONCAT(first_name, ' ', last_name) INTO contact_name\r\n  FROM mail_contacts WHERE id = p_primary_contact_id;\r\n  \r\n  -- Create household\r\n  INSERT INTO mail_households (business_id, primary_contact_id, household_name)\r\n  VALUES (p_business_id, p_primary_contact_id, COALESCE(p_household_name, contact_name || ' Household'))\r\n  RETURNING id INTO new_household_id;\r\n  \r\n  -- Link primary contact to household\r\n  UPDATE mail_contacts \r\n  SET \r\n    household_id = new_household_id,\r\n    relationship_role = 'primary',\r\n    is_household_head = TRUE,\r\n    updated_at = timezone('utc'::text, now())\r\n  WHERE id = p_primary_contact_id;\r\n  \r\n  RETURN new_household_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_consent_action",
+    "routine_definition": "\r\nBEGIN\r\n  INSERT INTO mail_consent_log \r\n  (business_id, contact_id, email_address, action, consent_source, consent_method, \r\n   consent_text, ip_address, user_agent, additional_data)\r\n  VALUES \r\n  (p_business_id, p_contact_id, p_email_address, p_action, p_consent_source, \r\n   p_consent_method, p_consent_text, p_ip_address, p_user_agent, p_additional_data);\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "create_default_shuffle_playlist",
+    "routine_definition": "\r\nBEGIN\r\n  INSERT INTO music_playlists (\r\n    name, \r\n    description, \r\n    business_id, \r\n    playlist_type, \r\n    shuffle_include_new_uploads, \r\n    color_code, \r\n    auto_generated\r\n  )\r\n  VALUES (\r\n    'Default Shuffle', \r\n    'Automatically includes all tracks marked for shuffle', \r\n    NEW.id, \r\n    'shuffle', \r\n    true, \r\n    '#10B981', \r\n    true\r\n  );\r\n  RETURN NEW;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "decrement_product_stock",
+    "routine_definition": "\r\nbegin\r\n  update pos_products\r\n  set stock_level = stock_level - qty\r\n  where id = product_id_input\r\n  and track_stock = true;\r\nend;\r\n"
+  },
+  {
+    "routine_name": "emergency_stop_campaign",
+    "routine_definition": "\r\nDECLARE\r\n  campaign_exists BOOLEAN;\r\nBEGIN\r\n  -- Verify campaign belongs to business\r\n  SELECT EXISTS(\r\n    SELECT 1 FROM mail_campaigns \r\n    WHERE id = p_campaign_id AND business_id = p_business_id\r\n  ) INTO campaign_exists;\r\n  \r\n  IF NOT campaign_exists THEN\r\n    RETURN FALSE;\r\n  END IF;\r\n  \r\n  -- Stop all pending sends\r\n  UPDATE mail_campaign_sends \r\n  SET status = 'cancelled'\r\n  WHERE campaign_id = p_campaign_id \r\n    AND status = 'pending';\r\n  \r\n  -- Update campaign status\r\n  UPDATE mail_campaigns \r\n  SET status = 'stopped'\r\n  WHERE id = p_campaign_id;\r\n  \r\n  RETURN TRUE;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_pos_tab_items_updated_at",
+    "routine_definition": "\r\nBEGIN\r\n  NEW.updated_at = timezone('utc'::text, now());\r\n  RETURN NEW;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "handle_email_bounce",
+    "routine_definition": "\r\nDECLARE\r\n  contact_record RECORD;\r\nBEGIN\r\n  -- Find the contact\r\n  SELECT id, email INTO contact_record\r\n  FROM mail_contacts \r\n  WHERE business_id = p_business_id AND email = p_email_address;\r\n  \r\n  -- Insert bounce record\r\n  INSERT INTO mail_bounces (\r\n    business_id, contact_id, campaign_id, email_address, \r\n    bounce_type, bounce_reason, bounced_at, auto_removed\r\n  ) VALUES (\r\n    p_business_id, contact_record.id, p_campaign_id, p_email_address,\r\n    p_bounce_type, p_bounce_reason, timezone('utc'::text, now()),\r\n    p_bounce_type = 'hard'\r\n  );\r\n  \r\n  -- Auto-unsubscribe hard bounces\r\n  IF p_bounce_type = 'hard' AND contact_record.id IS NOT NULL THEN\r\n    UPDATE mail_contacts \r\n    SET subscribed = false, \r\n        unsubscribed_at = timezone('utc'::text, now())\r\n    WHERE id = contact_record.id;\r\n    \r\n    -- Also add to unsubscribes table\r\n    INSERT INTO mail_unsubscribes (\r\n      business_id, email, contact_id, unsubscribed_at, source\r\n    ) VALUES (\r\n      p_business_id, p_email_address, contact_record.id, \r\n      timezone('utc'::text, now()), 'auto_bounce'\r\n    ) ON CONFLICT (business_id, email) DO NOTHING;\r\n  END IF;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_contact_consent",
+    "routine_definition": "\r\nBEGIN\r\n  UPDATE mail_contacts \r\n  SET \r\n    consent_source = p_consent_source,\r\n    consent_timestamp = timezone('utc'::text, now()),\r\n    consent_ip_address = p_ip_address,\r\n    consent_user_agent = p_user_agent,\r\n    consent_method = p_consent_method,\r\n    consent_text = p_consent_text,\r\n    updated_at = timezone('utc'::text, now())\r\n  WHERE id = p_contact_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "get_campaign_stats",
+    "routine_definition": "\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT \r\n    COUNT(*)::INTEGER as total_recipients,\r\n    COUNT(CASE WHEN status = 'sent' THEN 1 END)::INTEGER as emails_sent,\r\n    COUNT(CASE WHEN status = 'pending' THEN 1 END)::INTEGER as emails_pending,\r\n    COUNT(CASE WHEN status = 'failed' THEN 1 END)::INTEGER as emails_failed,\r\n    CASE \r\n      WHEN COUNT(CASE WHEN status = 'sent' THEN 1 END) > 0 THEN\r\n        (COUNT(mb.id)::DECIMAL / COUNT(CASE WHEN status = 'sent' THEN 1 END)::DECIMAL * 100)\r\n      ELSE 0\r\n    END as bounce_rate,\r\n    mc.sent_at\r\n  FROM mail_campaign_sends mcs\r\n  JOIN mail_campaigns mc ON mcs.campaign_id = mc.id\r\n  LEFT JOIN mail_bounces mb ON mcs.email_address = mb.email_address AND mb.campaign_id = p_campaign_id\r\n  WHERE mcs.campaign_id = p_campaign_id\r\n  GROUP BY mc.sent_at;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_preference_change",
+    "routine_definition": "\r\nBEGIN\r\n  INSERT INTO mail_contact_preferences_log \r\n  (business_id, contact_id, preference_type, old_value, new_value, ip_address, user_agent)\r\n  VALUES \r\n  (p_business_id, p_contact_id, p_preference_type, p_old_value, p_new_value, p_ip_address, p_user_agent);\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_pos_action",
+    "routine_definition": "\r\ndeclare\r\n  actor uuid := current_setting('request.jwt.claim.sub', true)::uuid;\r\nbegin\r\n  insert into pos_audit_logs (\r\n    business_id,\r\n    actor_id,\r\n    action,\r\n    context,\r\n    metadata\r\n  )\r\n  values (\r\n    coalesce(NEW.business_id, OLD.business_id),\r\n    actor,\r\n    TG_OP,\r\n    TG_TABLE_NAME,\r\n    jsonb_build_object(\r\n      'new', to_jsonb(NEW),\r\n      'old', to_jsonb(OLD)\r\n    )\r\n  );\r\n  return null;\r\nend;\r\n"
+  },
+  {
+    "routine_name": "get_shuffle_playlist_tracks",
+    "routine_definition": "\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT \r\n    mt.id,\r\n    mt.title,\r\n    mt.artist,\r\n    mt.file_path,\r\n    mt.duration\r\n  FROM music_tracks mt\r\n  WHERE mt.business_id = (SELECT business_id FROM music_playlists WHERE id = playlist_uuid)\r\n    AND mt.include_in_shuffle = true\r\n    AND NOT EXISTS (\r\n      -- Exclude tracks that have exclusion rules\r\n      SELECT 1 FROM music_shuffle_rules msr \r\n      WHERE msr.playlist_id = playlist_uuid \r\n      AND msr.rule_type LIKE 'exclude_%'\r\n      AND (\r\n        (msr.rule_type = 'exclude_category' AND mt.category_id::text = msr.rule_value) OR\r\n        (msr.rule_type = 'min_duration' AND mt.duration < msr.rule_value::integer) OR\r\n        (msr.rule_type = 'max_duration' AND mt.duration > msr.rule_value::integer)\r\n      )\r\n    );\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "generate_sale_number",
+    "routine_definition": "\r\nDECLARE\r\n  today_date text;\r\n  sequence_num integer;\r\n  sale_num text;\r\nBEGIN\r\n  -- Get today's date in YYYYMMDD format\r\n  today_date := to_char(CURRENT_DATE, 'YYYYMMDD');\r\n  \r\n  -- Get the next sequence number for today\r\n  SELECT COALESCE(MAX(CAST(RIGHT(sale_number, 4) AS integer)), 0) + 1\r\n  INTO sequence_num\r\n  FROM pos_sales \r\n  WHERE business_id = business_uuid \r\n    AND sale_number LIKE today_date || '-%'\r\n    AND sale_number ~ '^[0-9]{8}-[0-9]{4}$';\r\n  \r\n  -- Format as YYYYMMDD-0001, YYYYMMDD-0002, etc.\r\n  sale_num := today_date || '-' || LPAD(sequence_num::text, 4, '0');\r\n  \r\n  RETURN sale_num;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_billing_usage",
+    "routine_definition": "\r\nDECLARE\r\n  current_period_start DATE;\r\n  current_period_end DATE;\r\n  business_record RECORD;\r\n  usage_count INTEGER;\r\nBEGIN\r\n  -- Only process when status changes to 'sent'\r\n  IF NEW.status = 'sent' AND (OLD.status IS NULL OR OLD.status != 'sent') THEN\r\n    \r\n    -- Get business_id from campaign\r\n    SELECT mc.business_id INTO business_record\r\n    FROM mail_campaigns mc\r\n    WHERE mc.id = NEW.campaign_id;\r\n    \r\n    -- Get current billing period\r\n    current_period_start := DATE_TRUNC('month', CURRENT_DATE);\r\n    current_period_end := (current_period_start + INTERVAL '1 month' - INTERVAL '1 day')::DATE;\r\n    \r\n    -- Count emails sent this period\r\n    SELECT COUNT(*) INTO usage_count\r\n    FROM mail_campaign_sends mcs\r\n    JOIN mail_campaigns mc ON mcs.campaign_id = mc.id\r\n    WHERE mc.business_id = business_record.business_id\r\n      AND mcs.status = 'sent'\r\n      AND DATE(mcs.sent_at) BETWEEN current_period_start AND current_period_end;\r\n    \r\n    -- Update billing record\r\n    UPDATE mail_billing \r\n    SET \r\n      emails_used = usage_count,\r\n      overage_emails = GREATEST(0, usage_count - included_emails),\r\n      total_amount = GREATEST(0, usage_count - included_emails) * overage_rate,\r\n      updated_at = timezone('utc'::text, now())\r\n    WHERE business_id = business_record.business_id\r\n      AND billing_period_start = current_period_start;\r\n    \r\n    -- Insert usage record\r\n    INSERT INTO mail_email_usage (business_id, campaign_id, emails_sent, cost)\r\n    VALUES (\r\n      business_record.business_id,\r\n      NEW.campaign_id,\r\n      1,\r\n      0.0025\r\n    );\r\n    \r\n  END IF;\r\n  \r\n  RETURN NEW;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_communication",
+    "routine_definition": "\r\nDECLARE\r\n  communication_id UUID;\r\nBEGIN\r\n  INSERT INTO mail_contact_communications \r\n  (business_id, contact_id, campaign_id, communication_type, direction, \r\n   subject, content, status, sent_at, metadata)\r\n  VALUES \r\n  (p_business_id, p_contact_id, p_campaign_id, p_communication_type, p_direction,\r\n   p_subject, p_content, p_status, timezone('utc'::text, now()), p_metadata)\r\n  RETURNING id INTO communication_id;\r\n  \r\n  RETURN communication_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_communication_status",
+    "routine_definition": "\r\nBEGIN\r\n  UPDATE mail_contact_communications \r\n  SET \r\n    status = p_status,\r\n    delivered_at = CASE WHEN p_status = 'delivered' THEN p_timestamp ELSE delivered_at END,\r\n    opened_at = CASE WHEN p_status = 'opened' THEN p_timestamp ELSE opened_at END,\r\n    clicked_at = CASE WHEN p_status = 'clicked' THEN p_timestamp ELSE clicked_at END\r\n  WHERE id = p_communication_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "validate_schedule_conflicts",
+    "routine_definition": "\r\nDECLARE\r\n    conflict_count INTEGER;\r\nBEGIN\r\n    -- Check for overlapping time rules within the same schedule\r\n    SELECT COUNT(*) INTO conflict_count\r\n    FROM music_ad_time_rules r1\r\n    WHERE r1.schedule_id = NEW.schedule_id\r\n      AND r1.id != NEW.id\r\n      AND r1.enabled = true\r\n      AND NEW.enabled = true\r\n      AND r1.days_of_week && NEW.days_of_week -- Array overlap\r\n      AND (\r\n          (NEW.start_time BETWEEN r1.start_time AND r1.end_time) OR\r\n          (NEW.end_time BETWEEN r1.start_time AND r1.end_time) OR\r\n          (r1.start_time BETWEEN NEW.start_time AND NEW.end_time)\r\n      );\r\n    \r\n    -- Insert conflict record if found\r\n    IF conflict_count > 0 THEN\r\n        INSERT INTO music_ad_schedule_conflicts (\r\n            business_id,\r\n            conflict_type,\r\n            conflict_description,\r\n            severity,\r\n            primary_schedule_id,\r\n            time_rule_id\r\n        ) VALUES (\r\n            (SELECT business_id FROM music_ad_schedule WHERE id = NEW.schedule_id),\r\n            'overlap',\r\n            'Time rule \"' || NEW.rule_name || '\" overlaps with existing rules',\r\n            'warning',\r\n            NEW.schedule_id,\r\n            NEW.id\r\n        );\r\n    END IF;\r\n    \r\n    RETURN NEW;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "get_product_modifiers",
+    "routine_definition": "\r\n  select jsonb_agg(jsonb_build_object(\r\n    'id', pmg.id,\r\n    'name', pmg.name,\r\n    'min_required', pmg.min_required,\r\n    'max_allowed', pmg.max_allowed,\r\n    'allow_multiple', pmg.allow_multiple,\r\n    'items', (\r\n      select jsonb_agg(jsonb_build_object(\r\n        'product_id', p.id,\r\n        'name', p.name,\r\n        'price', p.price,\r\n        'default_quantity', pmgi.default_quantity,\r\n        'can_be_doubled', pmgi.can_be_doubled\r\n      ))\r\n      from pos_modifier_group_items pmgi\r\n      join pos_products p on p.id = pmgi.product_id\r\n      where pmgi.modifier_group_id = pmg.id\r\n    )\r\n  ))\r\n  from pos_product_modifier_groups ppmg\r\n  join pos_modifier_groups pmg on ppmg.modifier_group_id = pmg.id\r\n  where ppmg.product_id = get_product_modifiers.product_id;\r\n"
+  },
+  {
+    "routine_name": "is_email_unsubscribed",
+    "routine_definition": "\r\nBEGIN\r\n  RETURN EXISTS (\r\n    SELECT 1 FROM mail_unsubscribes \r\n    WHERE business_id = p_business_id AND email = p_email\r\n  );\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_user_created",
+    "routine_definition": "\r\nbegin\r\n  insert into audit_logs (user_id, event_type, details)\r\n  values (\r\n    NEW.id,\r\n    'user_created',\r\n    jsonb_build_object('email', NEW.email, 'roles', NEW.roles)\r\n  );\r\n  return NEW;\r\nend;\r\n"
+  },
+  {
+    "routine_name": "dedupe_mail_contact",
+    "routine_definition": "\r\nDECLARE\r\n  contact_id UUID;\r\nBEGIN\r\n  -- Try to find existing contact by email within the business\r\n  SELECT id INTO contact_id \r\n  FROM mail_contacts \r\n  WHERE business_id = p_business_id AND email = p_email;\r\n  \r\n  IF contact_id IS NULL THEN\r\n    -- Create new contact\r\n    INSERT INTO mail_contacts (business_id, email, first_name, last_name, phone, source)\r\n    VALUES (p_business_id, p_email, p_first_name, p_last_name, p_phone, p_source)\r\n    RETURNING id INTO contact_id;\r\n  ELSE\r\n    -- Update existing contact with newer info (only if not null)\r\n    UPDATE mail_contacts \r\n    SET \r\n      first_name = COALESCE(p_first_name, first_name),\r\n      last_name = COALESCE(p_last_name, last_name),\r\n      phone = COALESCE(p_phone, phone),\r\n      updated_at = timezone('utc'::text, now())\r\n    WHERE id = contact_id;\r\n  END IF;\r\n  \r\n  RETURN contact_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_contact_engagement",
+    "routine_definition": "\r\nBEGIN\r\n  IF p_action = 'open' THEN\r\n    UPDATE mail_contacts \r\n    SET \r\n      last_opened_at = p_timestamp,\r\n      total_opens = total_opens + 1,\r\n      engagement_score = engagement_score + 1,\r\n      updated_at = timezone('utc'::text, now())\r\n    WHERE id = p_contact_id;\r\n  ELSIF p_action = 'click' THEN\r\n    UPDATE mail_contacts \r\n    SET \r\n      last_clicked_at = p_timestamp,\r\n      total_clicks = total_clicks + 1,\r\n      engagement_score = engagement_score + 3,  -- Clicks worth more than opens\r\n      updated_at = timezone('utc'::text, now())\r\n    WHERE id = p_contact_id;\r\n  ELSIF p_action = 'sent' THEN\r\n    UPDATE mail_contacts \r\n    SET \r\n      last_campaign_sent_at = p_timestamp,\r\n      updated_at = timezone('utc'::text, now())\r\n    WHERE id = p_contact_id;\r\n  END IF;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_mail_action",
+    "routine_definition": "\r\nBEGIN\r\n  INSERT INTO mail_audit_logs (action, business_id, user_id, details, created_at)\r\n  VALUES (p_action, p_business_id, p_user_id, p_details, timezone('utc'::text, now()));\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "add_contact_to_segment",
+    "routine_definition": "\r\nBEGIN\r\n  INSERT INTO mail_contact_segment_memberships (business_id, contact_id, segment_id, added_by)\r\n  VALUES (p_business_id, p_contact_id, p_segment_id, p_added_by)\r\n  ON CONFLICT (contact_id, segment_id) DO NOTHING;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "remove_contact_from_segment",
+    "routine_definition": "\r\nBEGIN\r\n  DELETE FROM mail_contact_segment_memberships \r\n  WHERE contact_id = p_contact_id AND segment_id = p_segment_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "get_contact_segments",
+    "routine_definition": "\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT \r\n    s.id,\r\n    s.name,\r\n    s.color\r\n  FROM mail_contact_segments s\r\n  JOIN mail_contact_segment_memberships m ON s.id = m.segment_id\r\n  WHERE m.contact_id = p_contact_id AND s.is_active = TRUE;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "is_email_suppressed",
+    "routine_definition": "\r\nBEGIN\r\n  RETURN EXISTS (\r\n    SELECT 1 FROM mail_bounces \r\n    WHERE business_id = p_business_id \r\n    AND email_address = p_email \r\n    AND bounce_type IN ('hard', 'complaint', 'suppression')\r\n  );\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "increment_campaign_sent_count",
+    "routine_definition": "\r\nBEGIN\r\n  UPDATE mail_campaigns \r\n  SET emails_sent = COALESCE(emails_sent, 0) + 1\r\n  WHERE id = p_campaign_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_consent_action",
+    "routine_definition": "\r\nBEGIN\r\n  -- Log consent actions for CASL compliance\r\n  PERFORM log_mail_action(\r\n    'consent_action',\r\n    p_business_id,\r\n    auth.uid(),\r\n    jsonb_build_object(\r\n      'contact_id', p_contact_id,\r\n      'email_address', p_email_address,\r\n      'action', p_action,\r\n      'consent_source', p_consent_source,\r\n      'ip_address', inet_client_addr(),\r\n      'timestamp', timezone('utc'::text, now())\r\n    )\r\n  );\r\n  \r\n  -- Update contact record if this is an unsubscribe\r\n  IF p_action IN ('unsubscribe', 'auto_unsubscribe') THEN\r\n    UPDATE mail_contacts \r\n    SET subscribed = false,\r\n        unsubscribed_at = timezone('utc'::text, now()),\r\n        updated_at = timezone('utc'::text, now())\r\n    WHERE id = p_contact_id AND business_id = p_business_id;\r\n    \r\n    -- Also add to unsubscribes table\r\n    INSERT INTO mail_unsubscribes (business_id, email, contact_id, source, ip_address)\r\n    VALUES (p_business_id, p_email_address, p_contact_id, p_consent_source, inet_client_addr())\r\n    ON CONFLICT (business_id, email) DO NOTHING;\r\n  END IF;\r\n  \r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_email_error",
+    "routine_definition": "\r\nDECLARE\r\n    error_id UUID;\r\nBEGIN\r\n    INSERT INTO mail_error_logs (\r\n        business_id, campaign_id, contact_id, contact_email,\r\n        error_type, error_message, error_code, severity\r\n    ) VALUES (\r\n        p_business_id, p_campaign_id, p_contact_id, p_contact_email,\r\n        p_error_type, p_error_message, p_error_code, p_severity\r\n    ) RETURNING id INTO error_id;\r\n    \r\n    RETURN error_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "process_complaint_notification",
+    "routine_definition": "\r\nDECLARE\r\n  v_contact_id UUID;\r\n  v_campaign_send_id UUID;\r\nBEGIN\r\n  -- Find the contact\r\n  SELECT id INTO v_contact_id\r\n  FROM mail_contacts \r\n  WHERE business_id = p_business_id AND email = p_email_address;\r\n  \r\n  -- Find the campaign send record\r\n  SELECT id INTO v_campaign_send_id\r\n  FROM mail_campaign_sends\r\n  WHERE ses_message_id = p_ses_message_id AND email_address = p_email_address;\r\n  \r\n  -- Record the complaint as a bounce\r\n  INSERT INTO mail_bounces (\r\n    business_id,\r\n    contact_id,\r\n    campaign_id,\r\n    campaign_send_id,\r\n    email_address,\r\n    bounce_type,\r\n    bounce_subtype,\r\n    bounce_reason,\r\n    ses_message_id,\r\n    raw_notification,\r\n    auto_removed\r\n  ) VALUES (\r\n    p_business_id,\r\n    v_contact_id,\r\n    p_campaign_id,\r\n    v_campaign_send_id,\r\n    p_email_address,\r\n    'complaint',\r\n    p_complaint_type,\r\n    'Spam complaint received',\r\n    p_ses_message_id,\r\n    p_raw_notification,\r\n    true\r\n  );\r\n  \r\n  -- Update campaign send status\r\n  UPDATE mail_campaign_sends \r\n  SET status = 'complained',\r\n      error_message = 'Spam complaint received'\r\n  WHERE id = v_campaign_send_id;\r\n  \r\n  -- Auto-unsubscribe the contact\r\n  PERFORM log_consent_action(\r\n    p_business_id,\r\n    v_contact_id,\r\n    p_email_address,\r\n    'auto_unsubscribe',\r\n    'spam_complaint'\r\n  );\r\n  \r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_send_status",
+    "routine_definition": "\r\nBEGIN\r\n    UPDATE mail_campaign_sends \r\n    SET \r\n        status = p_status,\r\n        updated_at = timezone('utc'::text, now()),\r\n        metadata = metadata || p_metadata,\r\n        delivered_at = CASE WHEN p_status = 'delivered' THEN p_timestamp ELSE delivered_at END,\r\n        opened_at = CASE WHEN p_status = 'opened' AND opened_at IS NULL THEN p_timestamp ELSE opened_at END,\r\n        clicked_at = CASE WHEN p_status = 'clicked' AND clicked_at IS NULL THEN p_timestamp ELSE clicked_at END,\r\n        bounced_at = CASE WHEN p_status = 'bounced' THEN p_timestamp ELSE bounced_at END,\r\n        unsubscribed_at = CASE WHEN p_status = 'unsubscribed' THEN p_timestamp ELSE unsubscribed_at END,\r\n        opens_count = CASE WHEN p_status = 'opened' THEN opens_count + 1 ELSE opens_count END,\r\n        clicks_count = CASE WHEN p_status = 'clicked' THEN clicks_count + 1 ELSE clicks_count END,\r\n        last_opened_at = CASE WHEN p_status = 'opened' THEN p_timestamp ELSE last_opened_at END,\r\n        last_clicked_at = CASE WHEN p_status = 'clicked' THEN p_timestamp ELSE last_clicked_at END\r\n    WHERE id = p_send_id;\r\n    \r\n    RETURN FOUND;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "update_mail_sending_queue_updated_at",
+    "routine_definition": "\r\nBEGIN\r\n  NEW.updated_at = timezone('utc'::text, now());\r\n  RETURN NEW;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "generate_sample_email_errors",
+    "routine_definition": "\r\nDECLARE\r\n    i INTEGER;\r\n    sample_campaigns UUID[];\r\n    sample_contacts UUID[];\r\n    error_types TEXT[] := ARRAY['bounce_hard', 'bounce_soft', 'spam_complaint', 'delivery_failed', 'invalid_email'];\r\n    error_messages TEXT[] := ARRAY[\r\n        'Recipient address rejected: User unknown',\r\n        'Temporary failure: Mailbox full',\r\n        'Message marked as spam by recipient',\r\n        'Connection timeout during delivery',\r\n        'Invalid email address format'\r\n    ];\r\nBEGIN\r\n    SELECT ARRAY_AGG(id) INTO sample_campaigns \r\n    FROM mail_campaigns WHERE business_id = p_business_id LIMIT 5;\r\n    \r\n    SELECT ARRAY_AGG(id) INTO sample_contacts \r\n    FROM mail_contacts WHERE business_id = p_business_id LIMIT 20;\r\n    \r\n    IF array_length(sample_campaigns, 1) IS NULL OR array_length(sample_contacts, 1) IS NULL THEN\r\n        RETURN 0;\r\n    END IF;\r\n    \r\n    FOR i IN 1..p_count LOOP\r\n        INSERT INTO mail_error_logs (\r\n            business_id,\r\n            campaign_id,\r\n            contact_id,\r\n            contact_email,\r\n            error_type,\r\n            error_message,\r\n            status,\r\n            severity,\r\n            created_at\r\n        ) VALUES (\r\n            p_business_id,\r\n            sample_campaigns[1 + (i % array_length(sample_campaigns, 1))],\r\n            sample_contacts[1 + (i % array_length(sample_contacts, 1))],\r\n            'test' || i || '@example.com',\r\n            error_types[1 + (i % array_length(error_types, 1))],\r\n            error_messages[1 + (i % array_length(error_messages, 1))],\r\n            CASE WHEN random() > 0.7 THEN 'resolved' ELSE 'logged' END,\r\n            CASE WHEN random() > 0.8 THEN 'high' ELSE 'medium' END,\r\n            timezone('utc'::text, now()) - (random() * INTERVAL '30 days')\r\n        );\r\n    END LOOP;\r\n    \r\n    RETURN p_count;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "generate_sample_send_data",
+    "routine_definition": "\r\nDECLARE\r\n    i INTEGER;\r\n    send_status TEXT[] := ARRAY['sent', 'delivered', 'opened', 'clicked', 'bounced', 'failed'];\r\n    base_time TIMESTAMP := timezone('utc'::text, now()) - INTERVAL '7 days';\r\nBEGIN\r\n    FOR i IN 1..p_count LOOP\r\n        INSERT INTO mail_campaign_sends (\r\n            campaign_id,\r\n            email_address,\r\n            status,\r\n            sent_at,\r\n            delivered_at,\r\n            opened_at,\r\n            clicked_at,\r\n            created_at\r\n        ) VALUES (\r\n            p_campaign_id,\r\n            'testuser' || i || '@example.com',\r\n            send_status[1 + (i % array_length(send_status, 1))],\r\n            base_time + (random() * INTERVAL '6 hours'),\r\n            CASE WHEN random() > 0.2 THEN base_time + (random() * INTERVAL '12 hours') ELSE NULL END,\r\n            CASE WHEN random() > 0.6 THEN base_time + (random() * INTERVAL '48 hours') ELSE NULL END,\r\n            CASE WHEN random() > 0.9 THEN base_time + (random() * INTERVAL '72 hours') ELSE NULL END,\r\n            base_time + (random() * INTERVAL '1 hour')\r\n        );\r\n    END LOOP;\r\n    \r\n    RETURN p_count;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "generate_refund_number",
+    "routine_definition": "\r\nDECLARE\r\n  refund_number TEXT;\r\n  counter INTEGER;\r\nBEGIN\r\n  -- Get today's date prefix with R for refund\r\n  SELECT 'R' || TO_CHAR(NOW(), 'YYYYMMDD') INTO refund_number;\r\n  \r\n  -- Get next counter for today\r\n  SELECT COALESCE(MAX(CAST(SUBSTRING(refund_number FROM 10) AS INTEGER)), 0) + 1\r\n  INTO counter\r\n  FROM pos_refunds \r\n  WHERE business_id = p_business_id \r\n  AND refund_number LIKE 'R' || TO_CHAR(NOW(), 'YYYYMMDD') || '%'\r\n  AND DATE(created_at) = CURRENT_DATE;\r\n  \r\n  -- Return formatted refund number\r\n  RETURN refund_number || LPAD(counter::TEXT, 4, '0');\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_audit_changes",
+    "routine_definition": "\r\nbegin\r\n  insert into audit_log (\r\n    table_name,\r\n    record_id,\r\n    action,\r\n    old_data,\r\n    new_data,\r\n    performed_by\r\n  )\r\n  values (\r\n    TG_TABLE_NAME,\r\n    coalesce(NEW.id, OLD.id),\r\n    TG_OP,\r\n    to_jsonb(OLD),\r\n    to_jsonb(NEW),\r\n    auth.uid()\r\n  );\r\n  return coalesce(NEW, OLD);\r\nend;\r\n"
+  },
+  {
+    "routine_name": "update_tab_totals",
+    "routine_definition": "\r\nBEGIN\r\n  -- Update tab totals when items are added/removed/updated\r\n  UPDATE pos_tabs \r\n  SET \r\n    subtotal = (\r\n      SELECT COALESCE(SUM(total_price), 0)\r\n      FROM pos_tab_items \r\n      WHERE tab_id = COALESCE(NEW.tab_id, OLD.tab_id)\r\n    ),\r\n    updated_at = timezone('utc'::text, now())\r\n  WHERE id = COALESCE(NEW.tab_id, OLD.tab_id);\r\n  \r\n  -- Update total and balance (assuming tax_amount is calculated elsewhere)\r\n  UPDATE pos_tabs \r\n  SET \r\n    total_amount = subtotal + tax_amount,\r\n    balance_remaining = subtotal + tax_amount - amount_paid,\r\n    status = CASE \r\n      WHEN subtotal + tax_amount - amount_paid <= 0 THEN 'closed'\r\n      WHEN amount_paid > 0 THEN 'partial'\r\n      ELSE 'open'\r\n    END\r\n  WHERE id = COALESCE(NEW.tab_id, OLD.tab_id);\r\n  \r\n  RETURN COALESCE(NEW, OLD);\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "checkout_order",
+    "routine_definition": "\r\ndeclare\r\n  v_total numeric := 0;\r\n  v_subtotal numeric := 0;\r\n  v_tax numeric := 0;\r\n  v_item_count integer := 0;\r\n  v_sale_id uuid := gen_random_uuid();\r\nbegin\r\n  -- Calculate totals\r\n  select\r\n    coalesce(sum(ci.price * ci.quantity), 0),\r\n    coalesce(sum(ci.quantity), 0)\r\n  into v_subtotal, v_item_count\r\n  from pos_cart_items ci\r\n  where ci.user_id = p_user_id;\r\n\r\n  v_tax := round(v_subtotal * 0.13, 2); -- flat 13% for now\r\n  v_total := v_subtotal + v_tax + coalesce(p_fees, 0) + coalesce(p_tip, 0) - coalesce(p_discount, 0) - coalesce(p_loyalty_discount, 0);\r\n\r\n  -- Insert into pos_sales\r\n  insert into pos_sales (\r\n    id, business_id, user_id, customer_name, customer_phone,\r\n    subtotal, tax, fees, discount, tip, loyalty_discount, total,\r\n    item_count, payment_method, payment_status, notes, created_at, updated_at, loyalty_customer_id\r\n  ) values (\r\n    v_sale_id, p_business_id, p_user_id, p_customer_name, p_customer_phone,\r\n    v_subtotal, v_tax, p_fees, p_discount, p_tip, p_loyalty_discount, v_total,\r\n    v_item_count, p_payment_method, p_payment_status, p_notes, now(), now(), p_loyalty_customer_id\r\n  );\r\n\r\n  -- Optionally: insert individual sale items (TBD)\r\n\r\n  -- Clear the user's cart\r\n  delete from pos_cart_items where user_id = p_user_id;\r\n\r\n  return v_sale_id;\r\nend;\r\n"
+  },
+  {
+    "routine_name": "get_next_transaction_number",
+    "routine_definition": "\r\nDECLARE\r\n    next_number INTEGER;\r\nBEGIN\r\n    -- Count all transactions for this business today, regardless of sale_number format\r\n    SELECT COUNT(*) + 1 INTO next_number\r\n    FROM pos_sales\r\n    WHERE business_id = p_business_id\r\n    AND DATE(created_at) = p_date;\r\n    \r\n    RETURN next_number;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "process_refund",
+    "routine_definition": "\r\ndeclare\r\n  v_refund_id uuid := gen_random_uuid();\r\nbegin\r\n  insert into pos_refunds (\r\n    id, business_id, sale_id, refunded_by,\r\n    refund_type, reason, amount, created_at, updated_at\r\n  )\r\n  values (\r\n    v_refund_id, p_business_id, p_sale_id, p_refunded_by,\r\n    p_refund_type, p_reason, p_amount, now(), now()\r\n  );\r\n\r\n  return v_refund_id;\r\nend;\r\n"
+  },
+  {
+    "routine_name": "update_tab_totals",
+    "routine_definition": "\r\nDECLARE\r\n  calculated_subtotal DECIMAL(10,2);\r\n  calculated_tax DECIMAL(10,2);\r\n  calculated_total DECIMAL(10,2);\r\n  calculated_paid DECIMAL(10,2);\r\n  tax_rate DECIMAL(10,4);\r\nBEGIN\r\n  -- Get tax rate for the business\r\n  SELECT COALESCE(ps.tax_rate, 0) INTO tax_rate\r\n  FROM pos_tabs pt\r\n  JOIN pos_settings ps ON pt.business_id = ps.business_id\r\n  WHERE pt.id = p_tab_id;\r\n  \r\n  -- Calculate subtotal from tab items\r\n  SELECT COALESCE(SUM(total_price), 0) INTO calculated_subtotal\r\n  FROM pos_tab_items\r\n  WHERE tab_id = p_tab_id;\r\n  \r\n  -- Calculate tax\r\n  calculated_tax := calculated_subtotal * tax_rate;\r\n  \r\n  -- Calculate total\r\n  calculated_total := calculated_subtotal + calculated_tax;\r\n  \r\n  -- Calculate amount paid\r\n  SELECT COALESCE(SUM(paid_amount), 0) INTO calculated_paid\r\n  FROM pos_tab_items\r\n  WHERE tab_id = p_tab_id;\r\n  \r\n  -- Update the tab\r\n  UPDATE pos_tabs SET\r\n    subtotal = calculated_subtotal,\r\n    tax_amount = calculated_tax,\r\n    total_amount = calculated_total,\r\n    amount_paid = calculated_paid,\r\n    balance_remaining = calculated_total - calculated_paid,\r\n    updated_at = timezone('utc'::text, now())\r\n  WHERE id = p_tab_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "generate_tab_number",
+    "routine_definition": "\r\nDECLARE\r\n  tab_number TEXT;\r\n  counter INTEGER;\r\nBEGIN\r\n  -- Get today's date prefix\r\n  SELECT TO_CHAR(NOW(), 'YYYYMMDD') INTO tab_number;\r\n  \r\n  -- Get next counter for today\r\n  SELECT COALESCE(MAX(CAST(SUBSTRING(tab_number FROM 9) AS INTEGER)), 0) + 1\r\n  INTO counter\r\n  FROM pos_tabs \r\n  WHERE business_id = p_business_id \r\n  AND tab_number LIKE tab_number || '%'\r\n  AND DATE(created_at) = CURRENT_DATE;\r\n  \r\n  -- Return formatted tab number\r\n  RETURN tab_number || LPAD(counter::TEXT, 4, '0');\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "redeem_loyalty_points",
+    "routine_definition": "\r\ndeclare\r\n  v_current_points numeric;\r\nbegin\r\n  select points into v_current_points\r\n  from loyalty_customers\r\n  where id = p_loyalty_customer_id;\r\n\r\n  if v_current_points is null or v_current_points < p_points_to_redeem then\r\n    raise exception 'Insufficient points';\r\n  end if;\r\n\r\n  update loyalty_customers\r\n  set points = points - p_points_to_redeem,\r\n      updated_at = now()\r\n  where id = p_loyalty_customer_id;\r\n\r\n  -- optional: log redemption\r\n  insert into loyalty_redemptions (\r\n    id, loyalty_customer_id, points_redeemed, reason, created_at\r\n  )\r\n  values (\r\n    gen_random_uuid(), p_loyalty_customer_id, p_points_to_redeem, p_reason, now()\r\n  );\r\n\r\n  return true;\r\nend;\r\n"
+  },
+  {
+    "routine_name": "trigger_update_tab_totals",
+    "routine_definition": "\r\nBEGIN\r\n  IF TG_OP = 'DELETE' THEN\r\n    PERFORM update_tab_totals(OLD.tab_id);\r\n    RETURN OLD;\r\n  ELSE\r\n    PERFORM update_tab_totals(NEW.tab_id);\r\n    RETURN NEW;\r\n  END IF;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "cleanup_expired_saved_orders",
+    "routine_definition": "\r\nDECLARE\r\n  deleted_count INTEGER;\r\nBEGIN\r\n  DELETE FROM pos_saved_orders \r\n  WHERE expires_at IS NOT NULL \r\n  AND expires_at < timezone('utc'::text, now());\r\n  \r\n  GET DIAGNOSTICS deleted_count = ROW_COUNT;\r\n  RETURN deleted_count;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "process_refund",
+    "routine_definition": "\r\nDECLARE\r\n  refund_id UUID;\r\n  original_total DECIMAL(10,2);\r\n  already_refunded DECIMAL(10,2);\r\n  max_refundable DECIMAL(10,2);\r\nBEGIN\r\n  -- Get original sale total\r\n  SELECT total INTO original_total\r\n  FROM pos_sales\r\n  WHERE id = p_original_sale_id AND business_id = p_business_id;\r\n  \r\n  IF original_total IS NULL THEN\r\n    RAISE EXCEPTION 'Original sale not found';\r\n  END IF;\r\n  \r\n  -- Get already refunded amount\r\n  SELECT COALESCE(SUM(total_refund_amount), 0) INTO already_refunded\r\n  FROM pos_refunds\r\n  WHERE original_sale_id = p_original_sale_id;\r\n  \r\n  -- Calculate max refundable amount\r\n  max_refundable := original_total - already_refunded;\r\n  \r\n  -- Validate refund amount\r\n  IF p_total_refund_amount > max_refundable THEN\r\n    RAISE EXCEPTION 'Refund amount (%) exceeds maximum refundable amount (%)', \r\n      p_total_refund_amount, max_refundable;\r\n  END IF;\r\n  \r\n  -- Create the refund record\r\n  INSERT INTO pos_refunds (\r\n    business_id,\r\n    original_sale_id,\r\n    refunded_by,\r\n    refund_type,\r\n    refund_method,\r\n    total_refund_amount,\r\n    reason,\r\n    manager_override,\r\n    manager_id\r\n  ) VALUES (\r\n    p_business_id,\r\n    p_original_sale_id,\r\n    p_refunded_by,\r\n    p_refund_type,\r\n    p_refund_method,\r\n    p_total_refund_amount,\r\n    p_reason,\r\n    p_manager_override,\r\n    p_manager_id\r\n  ) RETURNING id INTO refund_id;\r\n  \r\n  RETURN refund_id;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "log_receipt_reprint",
+    "routine_definition": "\r\n  insert into pos_receipt_logs (\r\n    id, business_id, sale_id, printed_by, reason, created_at\r\n  )\r\n  values (\r\n    gen_random_uuid(), p_business_id, p_sale_id, p_printed_by, p_reason, now()\r\n  );\r\n"
+  },
+  {
+    "routine_name": "get_current_billing_period",
+    "routine_definition": "\r\nBEGIN\r\n  -- For now, return a default billing period structure\r\n  -- This will be enhanced when billing tables are implemented\r\n  RETURN QUERY\r\n  SELECT \r\n    p_business_id,\r\n    DATE_TRUNC('month', CURRENT_DATE)::DATE as billing_period_start,\r\n    (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month - 1 day')::DATE as billing_period_end,\r\n    5000 as included_emails,\r\n    COALESCE((\r\n      SELECT COUNT(*)::INTEGER \r\n      FROM mail_campaign_sends mcs\r\n      JOIN mail_campaigns mc ON mcs.campaign_id = mc.id\r\n      WHERE mc.business_id = p_business_id \r\n      AND mcs.status = 'sent'\r\n      AND mcs.sent_at >= DATE_TRUNC('month', CURRENT_DATE)\r\n    ), 0) as emails_used,\r\n    GREATEST(0, COALESCE((\r\n      SELECT COUNT(*)::INTEGER \r\n      FROM mail_campaign_sends mcs\r\n      JOIN mail_campaigns mc ON mcs.campaign_id = mc.id\r\n      WHERE mc.business_id = p_business_id \r\n      AND mcs.status = 'sent'\r\n      AND mcs.sent_at >= DATE_TRUNC('month', CURRENT_DATE)\r\n    ), 0) - 5000) as overage_emails,\r\n    0.0025::DECIMAL(10,4) as overage_rate,\r\n    GREATEST(0, COALESCE((\r\n      SELECT COUNT(*)::INTEGER \r\n      FROM mail_campaign_sends mcs\r\n      JOIN mail_campaigns mc ON mcs.campaign_id = mc.id\r\n      WHERE mc.business_id = p_business_id \r\n      AND mcs.status = 'sent'\r\n      AND mcs.sent_at >= DATE_TRUNC('month', CURRENT_DATE)\r\n    ), 0) - 5000) * 0.0025::DECIMAL(10,2) as total_amount;\r\nEND;\r\n"
+  },
+  {
+    "routine_name": "record_email_usage",
+    "routine_definition": "\r\nBEGIN\r\n  INSERT INTO public.mail_email_usage (business_id, campaign_id, usage_date, emails_sent)\r\n  VALUES (p_business_id, p_campaign_id, CURRENT_DATE, GREATEST(p_emails_sent, 0))\r\n  ON CONFLICT (business_id, campaign_id, usage_date)\r\n  DO UPDATE SET emails_sent = public.mail_email_usage.emails_sent + EXCLUDED.emails_sent;\r\nEND;\r\n"
+  }
+]
