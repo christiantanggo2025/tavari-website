@@ -1,26 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
+import { supabase, supabaseAdmin } from '../supabaseClient';
 import toast from 'react-hot-toast';
-
-const supabaseService = supabaseAdmin;
 
 const ForgotPassword = () => {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
   const [pin, setPin] = useState('');
   const [authId, setAuthId] = useState(null);
-
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
   const [errorMsg, setErrorMsg] = useState('');
   const navigate = useNavigate();
 
   const handleVerify = async () => {
     setErrorMsg('');
 
-    // Step 1: Check public.users for email and pin
+    // Step 1: Verify user email + PIN
     const { data: user, error: userError } = await supabase
       .from('users')
       .select('email, pin')
@@ -33,8 +29,14 @@ const ForgotPassword = () => {
       return;
     }
 
-    // Step 2: Get auth.users.id using listUsers()
-    const { data: authUsers, error: listError } = await supabaseService.auth.admin.listUsers();
+    // Step 2: Ensure admin client exists
+    if (!supabaseAdmin || !supabaseAdmin.auth?.admin) {
+      setErrorMsg('Admin privileges not configured for this environment.');
+      return;
+    }
+
+    // Step 3: Get auth.users.id using listUsers()
+    const { data: authUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
 
     if (listError || !authUsers || !authUsers.users) {
       setErrorMsg('Unable to verify auth user.');
@@ -61,6 +63,11 @@ const ForgotPassword = () => {
 
     if (newPassword !== confirmPassword) {
       setErrorMsg('Passwords do not match.');
+      return;
+    }
+
+    if (!supabaseAdmin || !supabaseAdmin.auth?.admin) {
+      setErrorMsg('Admin privileges not configured for this environment.');
       return;
     }
 
