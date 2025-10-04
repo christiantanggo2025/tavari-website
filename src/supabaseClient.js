@@ -1,12 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://iagcamwcfuiopmwefohz.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2NhbXdjZnVpb3Btd2Vmb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM1NjY1MTksImV4cCI6MjA2OTE0MjUxOX0.qIw6wSI7O3Yl6Av-LVfDYL9TyKWNpeH0f2WIl221QW4';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+if (!supabaseUrl) throw new Error('supabaseUrl is required');
+if (!supabaseKey) throw new Error('supabaseKey is required');
 
-// 🔐 Admin client for secure operations (e.g. internal password reset)
-export const supabaseAdmin = createClient(
-  supabaseUrl,
-  import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-);
+export const supabase = createClient(supabaseUrl, supabaseKey);
