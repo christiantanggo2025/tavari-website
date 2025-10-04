@@ -550,7 +550,7 @@ const LoginComponent = () => {
             onBlur={(e) => Object.assign(e.target.style, styles.input)}
             disabled={isLoading}
             maxLength={254}
-            autoComplete="email"
+            autoComplete="off"
             spellCheck={false}
           />
           {securityState.validationErrors?.email && (
@@ -584,7 +584,7 @@ const LoginComponent = () => {
               onPaste={handlePasswordPaste}
               disabled={isLoading}
               maxLength={128}
-              autoComplete="current-password"
+              autoComplete="off"
               spellCheck={false}
             />
             <button

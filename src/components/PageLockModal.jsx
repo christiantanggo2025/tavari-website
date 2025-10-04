@@ -271,6 +271,7 @@ const PageLockModal = ({
             ...styles.pinInput,
             ...(document.activeElement === inputRef.current ? styles.pinInputFocus : {})
           }}
+		  autoComplete="off"
           autoFocus
         />
         

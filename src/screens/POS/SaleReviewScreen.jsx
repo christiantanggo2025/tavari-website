@@ -13,7 +13,7 @@ const SaleReviewScreen = () => {
   
   // Use standardized auth hook
   const auth = usePOSAuth({
-    requiredRoles: ['cashier', 'manager', 'owner'],
+    requiredRoles: ['employee', 'manager', 'owner'],
     requireBusiness: true,
     componentName: 'SaleReviewScreen'
   });
@@ -282,7 +282,7 @@ const SaleReviewScreen = () => {
   if (loading) {
     return (
       <POSAuthWrapper
-        requiredRoles={['cashier', 'manager', 'owner']}
+        requiredRoles={['employee', 'manager', 'owner']}
         requireBusiness={true}
         componentName="SaleReviewScreen"
       >
@@ -308,7 +308,7 @@ const SaleReviewScreen = () => {
   if (error) {
     return (
       <POSAuthWrapper
-        requiredRoles={['cashier', 'manager', 'owner']}
+        requiredRoles={['employee', 'manager', 'owner']}
         requireBusiness={true}
         componentName="SaleReviewScreen"
       >
@@ -339,7 +339,7 @@ const SaleReviewScreen = () => {
   if (!cartData) {
     return (
       <POSAuthWrapper
-        requiredRoles={['cashier', 'manager', 'owner']}
+        requiredRoles={['employee', 'manager', 'owner']}
         requireBusiness={true}
         componentName="SaleReviewScreen"
       >
@@ -358,7 +358,7 @@ const SaleReviewScreen = () => {
 
   return (
     <POSAuthWrapper
-      requiredRoles={['cashier', 'manager', 'owner']}
+      requiredRoles={['employee', 'manager', 'owner']}
       requireBusiness={true}
       componentName="SaleReviewScreen"
     >

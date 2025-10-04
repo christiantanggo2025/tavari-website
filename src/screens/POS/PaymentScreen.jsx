@@ -26,7 +26,7 @@ const PaymentScreen = () => {
   
   // Authentication using standardized hook
   const auth = usePOSAuth({
-    requiredRoles: ['cashier', 'manager', 'owner'],
+    requiredRoles: ['employee', 'manager', 'owner'],
     requireBusiness: true,
     componentName: 'PaymentScreen'
   });
@@ -178,21 +178,6 @@ const PaymentScreen = () => {
       setLoyaltySettings(null);
     }
   };
-
-  // Update tip amount when business settings change or sale data is first loaded
-  useEffect(() => {
-    if (businessSettings?.tip_enabled && saleData) {
-      const defaultTip = (businessSettings.default_tip_percent || 0.15) * saleData.total_amount;
-      setTipAmount(Math.round(defaultTip * 100) / 100);
-      console.log('PaymentScreen: Updated tip amount based on fresh settings:', {
-        default_tip_percent: businessSettings.default_tip_percent,
-        sale_total: saleData.total_amount,
-        calculated_tip: defaultTip
-      });
-    } else if (businessSettings?.tip_enabled === false) {
-      setTipAmount(0);
-    }
-  }, [businessSettings?.default_tip_percent, businessSettings?.tip_enabled, saleData?.total_amount]);
 
   // MAIN LOYALTY CALCULATION
   const calculateLoyaltyCredits = async () => {
@@ -712,7 +697,7 @@ const PaymentScreen = () => {
   if (!receivedSaleData) {
     return (
       <POSAuthWrapper
-        requiredRoles={['cashier', 'manager', 'owner']}
+        requiredRoles={['employee', 'manager', 'owner']}
         componentName="PaymentScreen"
       >
         <div style={TavariStyles.utils.merge(styles.container, TavariStyles.layout.flexCenter)}>
@@ -738,7 +723,7 @@ const PaymentScreen = () => {
   if (!saleData || !businessSettings) {
     return (
       <POSAuthWrapper
-        requiredRoles={['cashier', 'manager', 'owner']}
+        requiredRoles={['employee', 'manager', 'owner']}
         componentName="PaymentScreen"
       >
         <div style={styles.container}>
@@ -762,7 +747,7 @@ const PaymentScreen = () => {
 
   return (
     <POSAuthWrapper
-      requiredRoles={['cashier', 'manager', 'owner']}
+      requiredRoles={['employee', 'manager', 'owner']}
       componentName="PaymentScreen"
     >
       <div style={styles.container}>

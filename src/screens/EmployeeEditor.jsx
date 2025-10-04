@@ -176,22 +176,38 @@ const EmployeeEditor = () => {
     const match = await bcrypt.compare(pinPrompt, currentUser.pin);
     if (!match) return alert('Incorrect PIN');
 
+    // ✅ SAFER admin password reset block
+    if (!supabaseAdmin) {
+      alert('Admin privileges are not configured for this environment.');
+      return;
+    }
+
     const { data: authUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
-    if (listError || !authUsers?.users) return alert('Unable to load auth users');
+
+    if (listError || !authUsers?.users) {
+      alert('Unable to load authentication users.');
+      console.error('List users error:', listError);
+      return;
+    }
 
     const matchAuth = authUsers.users.find((u) => u.email === employee.email);
-    if (!matchAuth) return alert('Auth user not found for this employee');
+
+    if (!matchAuth) {
+      alert('Auth user not found for this employee.');
+      return;
+    }
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(matchAuth.id, {
       password: newPassword,
     });
 
     if (error) {
-      console.error('Password update error:', error.message);
-      return alert('Failed to update password');
+      alert('Password update failed.');
+      console.error('Update error:', error);
+      return;
     }
 
-    alert('Password updated successfully');
+    alert('Password successfully reset.');
     setPasswordEditMode(false);
     setNewPassword('');
     setConfirmPassword('');

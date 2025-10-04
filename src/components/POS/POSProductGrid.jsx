@@ -542,6 +542,7 @@ const POSProductGrid = ({ products, onAddToCart }) => {
           value={searchTerm}
           onChange={handleSearchChange}
           onKeyDown={handleKeyDown}
+		  autoComplete="off"
           autoFocus
         />
       </div>
