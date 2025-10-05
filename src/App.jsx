@@ -1,4 +1,4 @@
-// src/App.jsx - Updated with indefinite stay logged in and 5-minute inactivity PIN requirement
+// src/App.jsx - FIXED: Proper indefinite stay logged in with session persistence
 import { useEffect, useState, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
@@ -91,10 +91,10 @@ import HRSettings from './screens/HR/HRSettings';
 import MilestoneScreen from './screens/HR/MilestoneScreen';
 import DocumentExpiryTracker from './screens/HR/DocumentExpiryTracker';
 
-// HR Payroll Dashboard import - NEW
+// HR Payroll Dashboard import
 import HRPayrollDashboard from './screens/HR/HRPayrollScreens/HRPayrollDashboard';
 
-// TOSA (Tavari OS Admin) Employee Portal imports - NEW
+// TOSA (Tavari OS Admin) Employee Portal imports
 import TOSAEmployeePortal from './screens/TavariAdmin/TOSAEmployeePortal';
 import TOSAEmployeeDashboard from './screens/TavariAdmin/TOSAEmployeeDashboard';
 import TOSABusinessEditor from './screens/TavariAdmin/TOSABusinessEditor';
@@ -112,35 +112,25 @@ function App() {
   const [isDesktopApp, setIsDesktopApp] = useState(false);
   const { business } = useBusiness();
 
-  // Initialize Global Music Service - This enables automatic music playbook!
+  // Initialize Global Music Service
   useMusicService();
 
   // Initialize Google AdSense
   useEffect(() => {
     const loadAdSense = () => {
-      // Check if AdSense is already loaded
-      if (window.adsbygoogle) {
-        return;
-      }
+      if (window.adsbygoogle) return;
 
-      // Create and append AdSense script
       const script = document.createElement('script');
       script.async = true;
       script.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2944855421239833';
       script.crossOrigin = 'anonymous';
       
-      script.onload = () => {
-        console.log('Google AdSense loaded successfully');
-      };
-      
-      script.onerror = () => {
-        console.warn('Failed to load Google AdSense');
-      };
+      script.onload = () => console.log('Google AdSense loaded successfully');
+      script.onerror = () => console.warn('Failed to load Google AdSense');
 
       document.head.appendChild(script);
     };
 
-    // Only load AdSense in production and web environment (not desktop app)
     if (!isDesktopApp && process.env.NODE_ENV === 'production') {
       loadAdSense();
     }
@@ -150,7 +140,6 @@ function App() {
   useEffect(() => {
     setIsDesktopApp(!!window.electronAPI);
     
-    // Log desktop app detection
     if (window.electronAPI) {
       console.log('Desktop app detected - enhanced features enabled');
     }
@@ -166,7 +155,7 @@ function App() {
     const resetTimer = () => {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
       inactivityTimer.current = setTimeout(async () => {
-        console.log('Inactivity timeout — requiring PIN re-entry');
+        console.log('⏰ Inactivity timeout – requiring PIN re-entry');
 
         const currentUser = await supabase.auth.getUser();
         if (currentUser?.data?.user?.id) {
@@ -196,61 +185,102 @@ function App() {
     };
   }, [navigate, session]);
 
+  // ✅ FIXED: Proper session management with auth state change handling
   useEffect(() => {
+    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('📱 Initial session loaded:', session ? 'Active session found' : 'No session');
       setSession(session);
       setLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Listen for auth state changes
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔄 Auth state changed:', event, session ? 'Session exists' : 'No session');
+      
       setSession(session);
 
       if (session) {
-        console.log('User logged in - music service will initialize');
+        // User is logged in
+        console.log('✅ User logged in - music service will initialize');
 
-        // Keep "stay logged in" logic
         const stayLoggedIn = localStorage.getItem('stayLoggedIn');
         if (stayLoggedIn === 'true') {
-          console.log('Indefinite session active - inactivity PIN lock enabled');
+          console.log('♾️ Indefinite session active - inactivity PIN lock enabled');
         }
       } else {
+        // Session is null - but we need to check WHY
+        
+        // ✅ KEY FIX: Ignore INITIAL_SESSION with null (happens during page load)
+        if (event === 'INITIAL_SESSION') {
+          console.log('🔍 Initial session check - ignoring null session (session may load momentarily)');
+          return;
+        }
+
+        // Handle actual sign-out events
         const stayLoggedIn = localStorage.getItem('stayLoggedIn') === 'true';
 
-        if (stayLoggedIn) {
-          console.log('Session expired due to inactivity — showing unlock screen, keeping music alive');
-          // Do NOT destroy the music service
-          navigate('/unlock');
-        } else {
-          console.log('User manually logged out - stopping music');
-          globalMusicService.destroy();
+        if (event === 'SIGNED_OUT') {
+          if (stayLoggedIn) {
+            // User has "stay logged in" enabled - this shouldn't happen unless they manually logged out
+            // or their token expired. Show unlock screen.
+            console.log('🔒 Session ended but stay logged in enabled - showing unlock screen, keeping music alive');
+            // Don't destroy the music service
+            navigate('/unlock');
+          } else {
+            // Normal logout - user doesn't want to stay logged in
+            console.log('👋 User manually logged out - stopping music');
+            globalMusicService.destroy();
 
-          // Clear session flags on logout
+            // Clear session flags on logout
+            localStorage.removeItem('stayLoggedIn');
+            localStorage.removeItem('expiresAt');
+            navigate('/login');
+          }
+        } else if (event === 'TOKEN_REFRESHED' && !session) {
+          // Token refresh failed - session expired
+          if (stayLoggedIn) {
+            console.log('🔄 Token refresh failed but stay logged in enabled - showing unlock');
+            navigate('/unlock');
+          } else {
+            console.log('❌ Token refresh failed - logging out');
+            globalMusicService.destroy();
+            localStorage.removeItem('stayLoggedIn');
+            localStorage.removeItem('expiresAt');
+            navigate('/login');
+          }
+        } else if (event === 'USER_DELETED') {
+          // User account was deleted
+          console.log('🗑️ User account deleted - cleaning up');
+          globalMusicService.destroy();
           localStorage.removeItem('stayLoggedIn');
           localStorage.removeItem('expiresAt');
+          navigate('/login');
         }
+        // For any other event with null session, we don't navigate away
+        // This prevents premature redirects during session restoration
       }
     });
 
     return () => {
       listener.subscription.unsubscribe();
     };
-  }, []);
+  }, [navigate]);
   
   // Initialize music service with business context once available
   useEffect(() => {
-    if (!session) return;             // only after login
-    if (!business?.id) return;        // wait until business is loaded
+    if (!session) return;
+    if (!business?.id) return;
 
-    console.log('Initializing music service for business:', business.id);
+    console.log('🎵 Initializing music service for business:', business.id);
     globalMusicService.initialize(business.id);
   }, [session, business?.id]);
 
   // Clean up any legacy 3AM session data on app load
   useEffect(() => {
-    // Remove old expiry-based session data if it exists
     const hasLegacyExpiry = localStorage.getItem('expiresAt');
     if (hasLegacyExpiry) {
-      console.log('Removing legacy 3AM session data');
+      console.log('🧹 Removing legacy 3AM session data');
       localStorage.removeItem('expiresAt');
     }
   }, []);
@@ -339,8 +369,6 @@ function App() {
           <Route path="music/ads/settings" element={<AdSettings />} />
           <Route path="music/ads/revenue" element={<RevenueReports />} />
           <Route path="music/ads/payouts" element={<PayoutHistory />} />
-          
-          {/* Desktop-Specific Music Route */}
 
           {/* Tavari Mail System Routes */}
           <Route path="mail/dashboard" element={<MailDashboard />} />
